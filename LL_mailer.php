@@ -40,11 +40,13 @@ class LL_mailer
   const admin_page_messages         = LL_mailer::_ . '_messages';
   const admin_page_message_edit     = LL_mailer::_ . '_messages&edit=';
   const admin_page_subscribers      = LL_mailer::_ . 'subscribers';
-  const admin_page_subscribers_edit = LL_mailer::_ . 'subscribers&edit=';
+  const admin_page_subscriber_edit  = LL_mailer::_ . 'subscribers&edit=';
+  
   
   
 	static function _($member_function) { return array(LL_mailer::_, $member_function); }
   static function pluginPath() { return plugin_dir_path(__FILE__); }
+  static function admin_url() { return get_admin_url() . 'admin.php?page='; }
   static function get_option_array($option) {
     $val = get_option($option);
     if (empty($val))
@@ -99,9 +101,7 @@ class LL_mailer
   static function escape_values($array)
   {
     return array_map(function($val) {
-      if (is_null($val))
-        return 'NULL';
-      return '"' . $val . '"';
+      return (!is_null($val)) ? '"' . $val . '"' : 'NULL';
     }, $array);
   }
   
@@ -118,6 +118,8 @@ class LL_mailer
   static function _db_insert_or_update($table, $data, $primary_key, $timestamp_key = null)
   {
     $data = LL_mailer::escape_values($data);
+    if (!is_null($timestamp_key))
+      $data[$timestamp_key] = 'NOW()';
     $data_keys = array_keys($data);
     $data_values = array_values($data);
     $data_no_slug = array_filter($data, function($val) use ($primary_key) { return $val != $primary_key; }, ARRAY_FILTER_USE_KEY);
@@ -176,7 +178,7 @@ class LL_mailer
   // - mail
   // - name
   // - subscribed_at
-  static function db_save_subscriber($subscriber) { return LL_mailer::_db_insert_or_update(LL_mailer::table_subscribers, $subscriber, 'mail', 'last_modified'); }
+  static function db_save_subscriber($subscriber) { return LL_mailer::_db_insert_or_update(LL_mailer::table_subscribers, $subscriber, 'mail'); }
   static function db_delete_subscriber($mail) { return LL_mailer::_db_delete(LL_mailer::table_subscribers, array('mail' => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return LL_mailer::_db_select_row(LL_mailer::table_subscribers, '*', array('mail' => $mail)); }
   static function db_get_subscribers($what) { return LL_mailer::_db_select(LL_mailer::table_subscribers, $what); }
@@ -333,10 +335,11 @@ class LL_mailer
   static function admin_menu()
   {
     $required_capability = 'administrator';
-    add_menu_page(LL_mailer::_,                      LL_mailer::_,                  $required_capability, LL_mailer::admin_page_settings,  LL_mailer::_('admin_page_settings'), plugins_url('/icon.png', __FILE__));
-    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Einstellungen', $required_capability, LL_mailer::admin_page_settings,  LL_mailer::_('admin_page_settings'));
-    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Vorlagen',      $required_capability, LL_mailer::admin_page_templates, LL_mailer::_('admin_page_templates'));
-    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Nachrichten',   $required_capability, LL_mailer::admin_page_messages,  LL_mailer::_('admin_page_messages'));
+    add_menu_page(LL_mailer::_,                      LL_mailer::_,                  $required_capability, LL_mailer::admin_page_settings,    LL_mailer::_('admin_page_settings'), plugins_url('/icon.png', __FILE__));
+    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Einstellungen', $required_capability, LL_mailer::admin_page_settings,    LL_mailer::_('admin_page_settings'));
+    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Vorlagen',      $required_capability, LL_mailer::admin_page_templates,   LL_mailer::_('admin_page_templates'));
+    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Nachrichten',   $required_capability, LL_mailer::admin_page_messages,    LL_mailer::_('admin_page_messages'));
+    add_submenu_page(LL_mailer::admin_page_settings, LL_mailer::_, 'Abonnenten',    $required_capability, LL_mailer::admin_page_subscribers, LL_mailer::_('admin_page_subscribers'));
 
     add_action('admin_init', LL_mailer::_('admin_page_settings_action'));
   }
@@ -395,7 +398,7 @@ class LL_mailer
             <tr valign="top">
             <th scope="row"><?=__('Slug für neue Vorlage')?></th>
             <td>
-              <input type="text" name="new_template_slug" placeholder="<?=__('meine-vorlage')?>" class="regular-text" />
+              <input type="text" name="template_slug" placeholder="<?=__('meine-vorlage')?>" class="regular-text" />
             </td>
             </tr>
           </table>
@@ -409,7 +412,7 @@ class LL_mailer
         <p>
 <?php
           $templates = LL_mailer::db_get_templates('slug, last_modified');
-          $edit_url = get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_template_edit;
+          $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_template_edit;
           foreach ($templates as $template) {
 ?>
             - <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ') . $template['last_modified']?> )</span><br />
@@ -426,7 +429,7 @@ class LL_mailer
         $template = LL_mailer::db_get_template_by_slug($template_slug);
         if (empty($template)) {
           LL_mailer::message(sprintf(__('Es existiert keine Vorlage <b>%s</b>.'), $template_slug));
-          wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_templates);
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
           exit;
         }
 ?>
@@ -465,11 +468,12 @@ class LL_mailer
         
 <?php
         $using_messages = LL_mailer::db_get_messages_by_template($template_slug);
+        $message_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
         if (!empty($using_messages)) {
 ?>
           <i><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:')?></i>
           <ul>
-            <li>- <?=implode('</li><li>- ', $using_messages)?></li>
+            <?=implode('<br />', array_map(function($v) use ($message_url) { return '- <a href="' . $message_url . $v . '">' . $v . '</a>'; }, $using_messages))?>
           </ul>
 <?php
         } else {
@@ -493,20 +497,20 @@ class LL_mailer
   {
     if (!empty($_POST)) {
       if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_template_add')) {
-        $new_template = sanitize_title($_POST['new_template_slug']);
+        $new_template = sanitize_title($_POST['template_slug']);
         if (!empty($new_template)) {
           
           $existing_template = LL_mailer::db_get_template_by_slug($new_template);
           if (!empty($existing_template)) {
             LL_mailer::message(sprintf(__('Die Vorlage <b>%s</b> existiert bereits.'), $new_template) . print_r($existing_template, true));
-            wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_templates);
+            wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
             exit;
           }
           
           LL_mailer::db_save_template(array('slug' => $new_template));
           
           LL_mailer::message(sprintf(__('Neue Vorlage <b>%s</b> angelegt.'), $new_template));
-          wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_template_edit . $new_template);
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $new_template);
           exit;
         }
       }
@@ -518,8 +522,8 @@ class LL_mailer
           'body_text' => strip_tags($_POST['body_text']) ?: null);
         LL_mailer::db_save_template($template);
         
-        LL_mailer::message(sprintf(__('Änderungen in Vorlage <b>%s</b> gespeichert.'), $template['slug']));
-        wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_template_edit . $template['slug']);
+        LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gespeichert.'), $template['slug']));
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $template['slug']);
         exit;
       }
       
@@ -528,11 +532,11 @@ class LL_mailer
         LL_mailer::db_delete_template($template_slug);
         
         LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gelöscht.'), $template_slug));
-        wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_templates);
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
         exit;
       }
     }
-    wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_templates);
+    wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
     exit;
   }
 
@@ -558,7 +562,7 @@ class LL_mailer
             <tr valign="top">
             <th scope="row"><?=__('Slug für neue Nachricht')?></th>
             <td>
-              <input type="text" name="new_message_slug" placeholder="<?=__('meine-nachricht')?>" class="regular-text" />
+              <input type="text" name="message_slug" placeholder="<?=__('meine-nachricht')?>" class="regular-text" />
             </td>
             </tr>
           </table>
@@ -572,7 +576,7 @@ class LL_mailer
         <p>
 <?php
           $messages = LL_mailer::db_get_messages('slug, subject, template_slug, last_modified');
-          $edit_url = get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_message_edit;
+          $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
           foreach ($messages as $message) {
 ?>
             - <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ') . $message['last_modified']?> )</span><br />
@@ -589,7 +593,7 @@ class LL_mailer
         $message = LL_mailer::db_get_message_by_slug($message_slug);
         if (empty($message)) {
           LL_mailer::message(sprintf(__('Es existiert keine Nachricht <b>%s</b>.'), $message_slug));
-          wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_messages);
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
           exit;
         }
         $templates = LL_mailer::db_get_templates('slug');
@@ -666,20 +670,20 @@ class LL_mailer
   {
     if (!empty($_POST)) {
       if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_message_add')) {
-        $new_message = sanitize_title($_POST['new_message_slug']);
+        $new_message = sanitize_title($_POST['message_slug']);
         if (!empty($new_message)) {
           
           $existing_message = LL_mailer::db_get_message_by_slug($new_message);
           if (!empty($existing_message)) {
             LL_mailer::message(sprintf(__('Die Nachricht <b>%s</b> existiert bereits.'), $new_message));
-            wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_messages);
+            wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
             exit;
           }
           
           LL_mailer::db_save_message(array('slug' => $new_message));
           
           LL_mailer::message(sprintf(__('Neue Nachricht <b>%s</b> angelegt.'), $new_message));
-          wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_message_edit . $new_message);
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_message_edit . $new_message);
           exit;
         }
       }
@@ -693,8 +697,8 @@ class LL_mailer
           'body_text' => strip_tags($_POST['body_text']) ?: null);
         LL_mailer::db_save_message($message);
         
-        LL_mailer::message(sprintf(__('Änderungen in Nachricht <b>%s</b> gespeichert.'), $message['slug']));
-        wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_message_edit . $message['slug']);
+        LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gespeichert.'), $message['slug']));
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_message_edit . $message['slug']);
         exit;
       }
       
@@ -703,11 +707,154 @@ class LL_mailer
         LL_mailer::db_delete_message($message_slug);
         
         LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gelöscht.'), $message_slug));
-        wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_messages);
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
         exit;
       }
     }
-    wp_redirect(get_admin_url() . 'admin.php?page=' . LL_mailer::admin_page_messages);
+    wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
+    exit;
+  }
+
+  
+  
+  static function admin_page_subscribers()
+  {
+    $sub_page = 'list';
+    if (isset($_GET['edit'])) $sub_page = 'edit';
+?>
+    <div class="wrap">
+<?php
+    switch ($sub_page) {
+      case 'list':
+      {
+?>
+        <h1><?=__('Neuer Abonnent')?></h1>
+
+        <form method="post" action="admin-post.php">
+          <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
+          <?php wp_nonce_field(LL_mailer::_ . '_subscriber_add'); ?>
+          <table class="form-table">
+            <tr valign="top">
+            <th scope="row"><?=__('E-Mail des neuen Abonnenten')?></th>
+            <td>
+              <input type="email" name="subscriber_mail" placeholder="<?=__('name@email.de')?>" class="regular-text" />
+            </td>
+            </tr>
+          </table>
+          <?php submit_button(__('Neuen Abonnenten anlegen')); ?>
+        </form>
+        
+        <hr />
+        
+        <h1><?=__('Gespeicherte Abonnenten')?></h1>
+        
+        <p>
+<?php
+          $subscribers = LL_mailer::db_get_subscribers('mail, name, subscribed_at');
+          $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
+          foreach ($subscribers as $subscriber) {
+?>
+            - <a href="<?=$edit_url . $subscriber['mail']?>"><b><?=$subscriber['mail']?></b></a> &nbsp; <?=$subscriber['name'] ?: '<i>(kein Name)</i>'?> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ') . $subscriber['subscribed_at']?> )</span><br />
+<?php
+          }
+?>
+        </p>
+<?php
+      } break;
+      
+      case 'edit':
+      {
+        $subscriber_mail = $_GET['edit'];
+        $subscriber = LL_mailer::db_get_subscriber_by_mail($subscriber_mail);
+        if (empty($subscriber)) {
+          LL_mailer::message(sprintf(__('Es existiert kein Abonnent <b>%s</b>.'), $subscriber_mail));
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
+          exit;
+        }
+?>
+        <h1><?=__('Abonnenten')?> &gt; <?=$subscriber_mail?></h1>
+
+        <form method="post" action="admin-post.php">
+          <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
+          <?php wp_nonce_field(LL_mailer::_ . '_subscriber_edit'); ?>
+          <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
+          <table class="form-table">
+            <tr valign="top">
+              <th scope="row"><?=__('Name')?></th>
+              <td>
+                <input type="text" name="name" value="<?=esc_attr($subscriber['name'])?>" placeholder="Name" class="regular-text" />
+              </td>
+            </tr>
+          </table>
+          <?php submit_button(__('Abonnent speichern')); ?>
+        </form>
+        
+        <hr />
+        
+        <h1><?=__('Löschen')?></h1>
+        
+        <form method="post" action="admin-post.php">
+          <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
+          <?php wp_nonce_field(LL_mailer::_ . '_subscriber_delete'); ?>
+          <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
+          <?php submit_button(__('Abonnent löschen'), 'delete'); ?>
+        </form>
+<?php
+      } break;
+    }
+?>
+    </div>
+<?php
+  }
+  
+  static function admin_page_subscriber_action()
+  {
+    if (!empty($_POST)) {
+      if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_add')) {
+        $new_subscriber = trim($_POST['subscriber_mail']);
+        if (!empty($new_subscriber)) {
+          if (!filter_var($new_subscriber, FILTER_VALIDATE_EMAIL)) {
+            LL_mailer::message(sprintf(__('Die E-Mail Adresse <b>%s</b> ist ungültig.'), $new_subscriber));
+            wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
+            exit;
+          }
+          
+          $existing_subscriber = LL_mailer::db_get_subscriber_by_mail($new_subscriber);
+          if (!empty($existing_subscriber)) {
+            LL_mailer::message(sprintf(__('Der Abonnent <b>%s</b> existiert bereits.'), $new_subscriber));
+            wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
+            exit;
+          }
+          
+          LL_mailer::db_save_subscriber(array('mail' => $new_subscriber));
+          
+          LL_mailer::message(sprintf(__('Neuer Abonnent <b>%s</b> angelegt.'), $new_subscriber));
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $new_subscriber);
+          exit;
+        }
+      }
+      
+      else if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_edit')) {
+        $subscriber = array(
+          'mail' => $_POST['subscriber_mail'],
+          'name' => $_POST['name'] ?: null);
+        LL_mailer::db_save_subscriber($subscriber);
+        
+        LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gespeichert.'), $subscriber['mail']));
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $subscriber['mail']);
+        exit;
+      }
+      
+      else if (isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_delete')) {
+        $subscriber_mail = $_POST['subscriber_mail'];
+        LL_mailer::db_delete_subscriber($subscriber_mail);
+        
+        LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gelöscht.'), $subscriber_mail));
+        wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
+        exit;
+      }
+    }
+    wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
     exit;
   }
   
@@ -724,6 +871,7 @@ class LL_mailer
     add_action('admin_menu', LL_mailer::_('admin_menu'));
     add_action('admin_post_' . LL_mailer::_ . '_template_action', LL_mailer::_('admin_page_template_action'));
     add_action('admin_post_' . LL_mailer::_ . '_message_action', LL_mailer::_('admin_page_message_action'));
+    add_action('admin_post_' . LL_mailer::_ . '_subscriber_action', LL_mailer::_('admin_page_subscriber_action'));
     
     
     
