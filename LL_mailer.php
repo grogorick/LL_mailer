@@ -42,6 +42,8 @@ class LL_mailer
   const admin_page_subscribers      = LL_mailer::_ . 'subscribers';
   const admin_page_subscriber_edit  = LL_mailer::_ . 'subscribers&edit=';
   
+  const list_item = '&ndash; &nbsp;';
+  
   
   
 	static function _($member_function) { return array(LL_mailer::_, $member_function); }
@@ -415,7 +417,7 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_template_edit;
           foreach ($templates as $template) {
 ?>
-            - <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ') . $template['last_modified']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ') . $template['last_modified']?> )</span><br />
 <?php
           }
 ?>
@@ -473,7 +475,7 @@ class LL_mailer
 ?>
           <i><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:')?></i>
           <ul>
-            <?=implode('<br />', array_map(function($v) use ($message_url) { return '- <a href="' . $message_url . $v . '">' . $v . '</a>'; }, $using_messages))?>
+            <?=implode('<br />', array_map(function($v) use ($message_url) { return LL_mailer::list_item . ' <a href="' . $message_url . $v . '">' . $v . '</a>'; }, $using_messages))?>
           </ul>
 <?php
         } else {
@@ -579,7 +581,7 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
           foreach ($messages as $message) {
 ?>
-            - <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ') . $message['last_modified']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ') . $message['last_modified']?> )</span><br />
 <?php
           }
 ?>
@@ -754,7 +756,7 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
           foreach ($subscribers as $subscriber) {
 ?>
-            - <a href="<?=$edit_url . $subscriber['mail']?>"><b><?=$subscriber['mail']?></b></a> &nbsp; <?=$subscriber['name'] ?: '<i>(kein Name)</i>'?> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ') . $subscriber['subscribed_at']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber['mail']?>"><b><?=$subscriber['mail']?></b></a> &nbsp; <?=$subscriber['name'] ?: '<i>(kein Name)</i>'?> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ') . $subscriber['subscribed_at']?> )</span><br />
 <?php
           }
 ?>
