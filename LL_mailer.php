@@ -480,6 +480,14 @@ class LL_mailer
             LL_mailer::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.'), $attribute));
           }
         }
+        else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_delete')) {
+          $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+          
+          $attributes = array_filter($attributes, function($attr) use ($attribute) { return $attr != $attribute; });
+          update_option(LL_mailer::option_subscriber_attributes, $attributes);
+          
+          LL_mailer::message(sprintf(__('Abonnenten-Attribut <b>%s</b> gelöscht.'), $attribute));
+        }
       }
     }
     wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_settings);
