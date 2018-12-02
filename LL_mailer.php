@@ -50,6 +50,7 @@ class LL_mailer
   
   
 	static function _($member_function) { return array(LL_mailer::_, $member_function); }
+  
   static function pluginPath() { return plugin_dir_path(__FILE__); }
   static function admin_url() { return get_admin_url() . 'admin.php?page='; }
 
@@ -76,7 +77,7 @@ class LL_mailer
     $msgs = LL_mailer::get_option_array(LL_mailer::option_msg);
     if (!empty($msgs)) {
       ?><div class="notice notice-info is-dismissible"><?php
-      foreach($msgs as $msg) {
+      foreach ($msgs as $msg) {
         if (!isset($first_line)) $first_line = true; else echo '<hr />';
         ?><p><?=nl2br($msg)?></p><?php
       }
@@ -104,6 +105,18 @@ class LL_mailer
     }
   }
   
+  static function escape_keys($keys)
+  {
+    if (is_array($keys)) {
+      return array_map(function($key) {
+        return '`' . $key . '`';
+      }, $keys);
+    }
+    if ($keys != '*')
+      return '`' . $keys . '`';
+    return $keys;
+  }
+  
   static function escape_values($array)
   {
     return array_map(function($val) {
@@ -114,9 +127,12 @@ class LL_mailer
   static function _db_build_select($table, $what, $where)
   {
     if (is_array($what)) {
-      $what = implode(', ', $what);
+      $what = implode(', ', LL_mailer::escape_keys($what));
     }
-    $sql = 'SELECT ' . $what . ' FROM ' . $table . LL_mailer::array_zip(' = ', LL_mailer::escape_values($where), ' AND ', ' WHERE ') . ';';
+    else {
+      $what = LL_mailer::escape_keys($what);
+    }
+    $sql = 'SELECT ' . $what . ' FROM ' . LL_mailer::escape_keys($table) . LL_mailer::array_zip('` = ', LL_mailer::escape_values($where), ' AND `', ' WHERE `') . ';';
     // LL_mailer::message($sql);
     return $sql;
   }
@@ -126,13 +142,13 @@ class LL_mailer
     $data = LL_mailer::escape_values($data);
     if (!is_null($timestamp_key))
       $data[$timestamp_key] = 'NOW()';
-    $data_keys = array_keys($data);
+    $data_keys = LL_mailer::escape_keys(array_keys($data));
     $data_values = array_values($data);
-    $data_no_slug = array_filter($data, function($val) use ($primary_key) { return $val != $primary_key; }, ARRAY_FILTER_USE_KEY);
+    $data_no_key = array_filter($data, function($val) use ($primary_key) { return $val != $primary_key; }, ARRAY_FILTER_USE_KEY);
     global $wpdb;
-    $sql = 'INSERT INTO ' . $wpdb->prefix . $table . ' ( ' . implode(', ', $data_keys) . ' ) 
+    $sql = 'INSERT INTO ' . LL_mailer::escape_keys($wpdb->prefix . $table) . ' ( ' . implode(', ', $data_keys) . ' ) 
             VALUES ( ' . implode(', ', $data_values) . ' )' . 
-            LL_mailer::array_zip(' = ', $data_no_slug, ', ', ' ON DUPLICATE KEY UPDATE ') . ';';
+            LL_mailer::array_zip('` = ', $data_no_key, ', `', ' ON DUPLICATE KEY UPDATE `') . ';';
     // LL_mailer::message($sql);
     return $wpdb->query($sql);
   }
@@ -140,7 +156,7 @@ class LL_mailer
   static function _db_delete($table, $where)
   {
     global $wpdb;
-    $sql = 'DELETE FROM ' . $wpdb->prefix . $table . LL_mailer::array_zip(' = ', LL_mailer::escape_values($where), ' AND ', ' WHERE ') . ';';
+    $sql = 'DELETE FROM ' . LL_mailer::escape_keys($wpdb->prefix . $table) . LL_mailer::array_zip('` = ', LL_mailer::escape_values($where), ' AND `', ' WHERE `') . ';';
     // LL_mailer::message($sql);
     return $wpdb->query($sql);
   }
@@ -182,12 +198,31 @@ class LL_mailer
   
   // subscribers
   // - mail
-  // - name
   // - subscribed_at
+  // [...]
   static function db_save_subscriber($subscriber) { return LL_mailer::_db_insert_or_update(LL_mailer::table_subscribers, $subscriber, 'mail'); }
   static function db_delete_subscriber($mail) { return LL_mailer::_db_delete(LL_mailer::table_subscribers, array('mail' => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return LL_mailer::_db_select_row(LL_mailer::table_subscribers, '*', array('mail' => $mail)); }
   static function db_get_subscribers($what) { return LL_mailer::_db_select(LL_mailer::table_subscribers, $what); }
+  
+  static function db_subscribers_add_attribute($attr) {
+    global $wpdb;
+    $sql = 'ALTER TABLE ' . LL_mailer::escape_keys($wpdb->prefix . LL_mailer::table_subscribers) . ' ADD ' . LL_mailer::escape_keys($attr) . ' TEXT NULL DEFAULT NULL;';
+    // LL_mailer::message($sql);
+    return $wpdb->query($sql);
+  }
+  static function db_subscribers_rename_attribute($attr, $new_attr) {
+    global $wpdb;
+    $sql = 'ALTER TABLE ' . LL_mailer::escape_keys($wpdb->prefix . LL_mailer::table_subscribers) . ' CHANGE ' . LL_mailer::escape_keys($attr) . ' ' . LL_mailer::escape_keys($new_attr) . ' TEXT;';
+    // LL_mailer::message($sql);
+    return $wpdb->query($sql);
+  }
+  static function db_subscribers_delete_attribute($attr) {
+    global $wpdb;
+    $sql = 'ALTER TABLE ' . LL_mailer::escape_keys($wpdb->prefix . LL_mailer::table_subscribers) . ' DROP ' . LL_mailer::escape_keys($attr) . ';';
+    // LL_mailer::message($sql);
+    return $wpdb->query($sql);
+  }
   
   
 
@@ -355,13 +390,13 @@ class LL_mailer
   {
 ?>
     <div class="wrap">
-      <h1><?=__('Allgemeine Einstellungen')?></h1>
+      <h1><?=__('Allgemeine Einstellungen', 'LL_mailer')?></h1>
 
       <form method="post" action="options.php">
         <?php settings_fields(LL_mailer::_ . '_general'); ?>
         <table class="form-table">
           <tr valign="top">
-            <th scope="row"><?=__('Absender')?></th>
+            <th scope="row"><?=__('Absender', 'LL_mailer')?></th>
             <td>
               <input type="text" name="<?=LL_mailer::option_sender_name?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_name))?>" placeholder="Name" class="regular-text"/>
               <input type="text" name="<?=LL_mailer::option_sender_mail?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_mail))?>" placeholder="E-Mail" class="regular-text" />
@@ -373,50 +408,35 @@ class LL_mailer
       <hr />
       <table class="form-table">
         <tr valign="top">
-          <th scope="row"><?=__('Abonnenten-Attribute')?></th>
+          <th scope="row"><?=__('Abonnenten-Attribute', 'LL_mailer')?></th>
           <td>
 <?php
-            $h = 14; // up-down button height
-            $subscriber_attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
-            for ($i = 0; $i < count($subscriber_attributes); $i++) {
-              $attr = $subscriber_attributes[$i];
-              $disabled_up = ($i == 0) ? ' disabled' : '';
-              $disabled_down = ($i == (count($subscriber_attributes) - 1)) ? ' disabled' : '';
+            $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+            foreach ($attributes as $attr => $attr_label) {
 ?>
               <form method="post" action="admin-post.php" style="display: inline;">
                 <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
                 <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_edit'); ?>
                 <input type="hidden" name="attribute" value="<?=$attr?>" />
-                <input type="text" name="attribute_rename" value="<?=$attr?>" class="regular-text" />
-                <?php submit_button(__('Speichern'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
-              </form>
-              &nbsp;
-              <form method="post" action="admin-post.php" style="display: inline;">
-                <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
-                <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_move'); ?>
-                <input type="hidden" name="attribute" value="<?=$attr?>" />
-                <div style="display: inline-block; position: relative; vertical-align: top;">
-                  <?php submit_button(LL_mailer::arrow_up, '', 'submit', false, 'style = "height: ' . $h . 'px; line-height: ' . $h . 'px; margin-top: 1px;"' . $disabled_up); ?>
-                  <?php submit_button(LL_mailer::arrow_down, '', 'submit', false, 'style = "height: ' . $h . 'px; line-height: ' . $h . 'px; top: ' . ($h + 1) . 'px; position: absolute;"' . $disabled_down); ?>
-                </div>
+                <input type="text" name="new_attribute_label" value="<?=$attr_label?>" class="regular-text" />
+                <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
               </form>
               &nbsp;
               <form method="post" action="admin-post.php" style="display: inline;">
                 <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
                 <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_delete'); ?>
                 <input type="hidden" name="attribute" value="<?=$attr?>" />
-                <?php submit_button(__('Löschen'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
+                <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
               </form>
               <br />
 <?php
             }
 ?>
-            <br />
             <form method="post" action="admin-post.php" style="display: inline;">
               <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
               <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_add'); ?>
-              <input type="text" name="attribute" placeholder="<?=__('Neues Attribut')?>" class="regular-text" />
-              <?php submit_button(__('Hinzufügen'), '', 'submit', false); ?>
+              <input type="text" name="attribute" placeholder="<?=__('Neues Attribut', 'LL_mailer')?>" class="regular-text" />
+              <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
             </form>
           </td>
         </tr>
@@ -438,55 +458,52 @@ class LL_mailer
       $attribute = trim($_POST['attribute']);
       if (!empty($attribute)) {
         if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_add')) {
-          $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
-          if (in_array($attribute, $attributes)) {
-            LL_mailer::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.'), $attribute));
-            wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_settings);
-            exit;
-          }
-          
-          $attributes[] = $attribute;
-          update_option(LL_mailer::option_subscriber_attributes, $attributes);
-          
-          LL_mailer::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.'), $attribute));
-        }
-        else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_move')) {
-          $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
-          
-          $idx = intval(array_search($attribute, $attributes));
-          $idx_other = ($_POST['submit'] == html_entity_decode(LL_mailer::arrow_up)) ? ($idx - 1) : ($idx + 1);
-          
-          $temp = $attributes[$idx_other];
-          $attributes[$idx_other] = $attributes[$idx];
-          $attributes[$idx] = $temp;
-          
-          update_option(LL_mailer::option_subscriber_attributes, $attributes);
-          
-          LL_mailer::message(sprintf(__('Abonnenten-Attribut <b>%s</b> verschoben.'), $attribute));
-        }
-        else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_edit')) {
-          $attribute_rename = trim($_POST['attribute_rename']);
-          if (!empty($attribute_rename)) {
+          $attribute_label = $attribute;
+          $attribute = sanitize_title($attribute);
+          if (!empty($attribute)) {
             $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
-            if (in_array($attribute_rename, $attributes)) {
-              LL_mailer::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.'), $attribute_rename));
+            if (in_array($attribute, array_keys($attributes))) {
+              LL_mailer::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $attribute_label));
               wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_settings);
               exit;
             }
             
-            array_walk($attributes, function(&$attr) use ($attribute, $attribute_rename) { if ($attr == $attribute) $attr = $attribute_rename; });
+            $attributes[$attribute] = $attribute_label;
             update_option(LL_mailer::option_subscriber_attributes, $attributes);
+            $r = LL_mailer::db_subscribers_add_attribute($attribute);
             
-            LL_mailer::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.'), $attribute));
+            LL_mailer::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.', 'LL_mailer'), $attribute_label));
+          }
+        }
+        else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_edit')) {
+          $new_attribute_label = trim($_POST['new_attribute_label']);
+          $new_attribute = sanitize_title($new_attribute_label);
+          if (!empty($new_attribute_label) && !empty($new_attribute)) {
+            $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+            if (in_array($new_attribute, array_keys($attributes))) {
+              LL_mailer::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $new_attribute_label));
+              wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_settings);
+              exit;
+            }
+            
+            $attribute_label = $attributes[$attribute];
+            unset($attributes[$attribute]);
+            $attributes[$new_attribute] = $new_attribute_label;
+            update_option(LL_mailer::option_subscriber_attributes, $attributes);
+            LL_mailer::db_subscribers_rename_attribute($attribute, $new_attribute);
+            
+            LL_mailer::message(sprintf(__('Abonnenten-Attribut <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $attribute_label, $new_attribute_label));
           }
         }
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_attribute_delete')) {
           $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
           
-          $attributes = array_filter($attributes, function($attr) use ($attribute) { return $attr != $attribute; });
+          $attribute_label = $attributes[$attribute];
+          unset($attributes[$attribute]);
           update_option(LL_mailer::option_subscriber_attributes, $attributes);
+          LL_mailer::db_subscribers_delete_attribute($attribute);
           
-          LL_mailer::message(sprintf(__('Abonnenten-Attribut <b>%s</b> gelöscht.'), $attribute));
+          LL_mailer::message(sprintf(__('Abonnenten-Attribut <b>%s</b> gelöscht.', 'LL_mailer'), $attribute_label));
         }
       }
     }
@@ -507,33 +524,33 @@ class LL_mailer
       case 'list':
       {
 ?>
-        <h1><?=__('Neue Vorlage')?></h1>
+        <h1><?=__('Neue Vorlage', 'LL_mailer')?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_template_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_template_add'); ?>
           <table class="form-table">
             <tr valign="top">
-            <th scope="row"><?=__('Slug für neue Vorlage')?></th>
+            <th scope="row"><?=__('Slug für neue Vorlage', 'LL_mailer')?></th>
             <td>
-              <input type="text" name="template_slug" placeholder="<?=__('meine-vorlage')?>" class="regular-text" />
+              <input type="text" name="template_slug" placeholder="<?=__('meine-vorlage', 'LL_mailer')?>" class="regular-text" />
             </td>
             </tr>
           </table>
-          <?php submit_button(__('Neue Vorlage anlegen')); ?>
+          <?php submit_button(__('Neue Vorlage anlegen', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Gespeicherte Vorlagen')?></h1>
+        <h1><?=__('Gespeicherte Vorlagen', 'LL_mailer')?></h1>
         
         <p>
 <?php
-          $templates = LL_mailer::db_get_templates('slug, last_modified');
+          $templates = LL_mailer::db_get_templates(array('slug', 'last_modified'));
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_template_edit;
           foreach ($templates as $template) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ') . $template['last_modified']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $template['last_modified']?> )</span><br />
 <?php
           }
 ?>
@@ -546,12 +563,12 @@ class LL_mailer
         $template_slug = $_GET['edit'];
         $template = LL_mailer::db_get_template_by_slug($template_slug);
         if (empty($template)) {
-          LL_mailer::message(sprintf(__('Es existiert keine Vorlage <b>%s</b>.'), $template_slug));
+          LL_mailer::message(sprintf(__('Es existiert keine Vorlage <b>%s</b>.', 'LL_mailer'), $template_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
           exit;
         }
 ?>
-        <h1><?=__('Vorlagen')?> &gt; <?=$template_slug?></h1>
+        <h1><?=__('Vorlagen', 'LL_mailer')?> &gt; <?=$template_slug?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_template_action" />
@@ -559,13 +576,13 @@ class LL_mailer
           <input type="hidden" name="template_slug" value="<?=$template_slug?>" />
           <table class="form-table">
             <tr valign="top">
-              <th scope="row"><?=__('Layout (HTML)')?></th>
+              <th scope="row"><?=__('Layout (HTML)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_html" style="width: 100%;" rows=10><?=$template['body_html']?></textarea>
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Layout (Text)')?></th>
+              <th scope="row"><?=__('Layout (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$template['body_text']?></textarea>
               </td>
@@ -573,23 +590,23 @@ class LL_mailer
             <tr>
               <td></td>
               <td>
-                <i><?=__('Im Layout muss <b>[CONTENT]</b> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.')?></i>
+                <i><?=__('Im Layout muss <b>[CONTENT]</b> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.', 'LL_mailer')?></i>
               </td>
             </tr>
           </table>
-          <?php submit_button(__('Vorlage speichern')); ?>
+          <?php submit_button(__('Vorlage speichern', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Löschen')?></h1>
+        <h1><?=__('Löschen', 'LL_mailer')?></h1>
         
 <?php
         $using_messages = LL_mailer::db_get_messages_by_template($template_slug);
         $message_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
         if (!empty($using_messages)) {
 ?>
-          <i><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:')?></i>
+          <i><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:', 'LL_mailer')?></i>
           <ul>
             <?=implode('<br />', array_map(function($v) use ($message_url) { return LL_mailer::list_item . ' <a href="' . $message_url . $v . '">' . $v . '</a>'; }, $using_messages))?>
           </ul>
@@ -600,7 +617,7 @@ class LL_mailer
             <input type="hidden" name="action" value="<?=LL_mailer::_?>_template_action" />
             <?php wp_nonce_field(LL_mailer::_ . '_template_delete'); ?>
             <input type="hidden" name="template_slug" value="<?=$template_slug?>" />
-            <?php submit_button(__('Vorlage löschen'), 'delete'); ?>
+            <?php submit_button(__('Vorlage löschen', 'LL_mailer'), 'delete'); ?>
           </form>
 <?php
         }
@@ -619,21 +636,21 @@ class LL_mailer
         if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_template_add')) {
           $template_slug = sanitize_title($template_slug);
           if (empty($template_slug)) {
-            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Vorlagen-Slug verwendet werden.'), $_POST['template_slug']));
+            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Vorlagen-Slug verwendet werden.', 'LL_mailer'), $_POST['template_slug']));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
             exit;
           }
           
           $existing_template = LL_mailer::db_get_template_by_slug($template_slug);
           if (!empty($existing_template)) {
-            LL_mailer::message(sprintf(__('Die Vorlage <b>%s</b> existiert bereits.'), $template_slug));
+            LL_mailer::message(sprintf(__('Die Vorlage <b>%s</b> existiert bereits.', 'LL_mailer'), $template_slug));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
             exit;
           }
           
           LL_mailer::db_save_template(array('slug' => $template_slug));
           
-          LL_mailer::message(sprintf(__('Neue Vorlage <b>%s</b> angelegt.'), $template_slug));
+          LL_mailer::message(sprintf(__('Neue Vorlage <b>%s</b> angelegt.', 'LL_mailer'), $template_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $template_slug);
           exit;
         }
@@ -645,7 +662,7 @@ class LL_mailer
             'body_text' => strip_tags($_POST['body_text']) ?: null);
           LL_mailer::db_save_template($template);
           
-          LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gespeichert.'), $template_slug));
+          LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gespeichert.', 'LL_mailer'), $template_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $template_slug);
           exit;
         }
@@ -653,7 +670,7 @@ class LL_mailer
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_template_delete')) {
           LL_mailer::db_delete_template($template_slug);
           
-          LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gelöscht.'), $template_slug));
+          LL_mailer::message(sprintf(__('Vorlage <b>%s</b> gelöscht.', 'LL_mailer'), $template_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
           exit;
         }
@@ -676,33 +693,33 @@ class LL_mailer
       case 'list':
       {
 ?>
-        <h1><?=__('Neue Nachricht')?></h1>
+        <h1><?=__('Neue Nachricht', 'LL_mailer')?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_message_add'); ?>
           <table class="form-table">
             <tr valign="top">
-            <th scope="row"><?=__('Slug für neue Nachricht')?></th>
+            <th scope="row"><?=__('Slug für neue Nachricht', 'LL_mailer')?></th>
             <td>
-              <input type="text" name="message_slug" placeholder="<?=__('meine-nachricht')?>" class="regular-text" />
+              <input type="text" name="message_slug" placeholder="<?=__('meine-nachricht', 'LL_mailer')?>" class="regular-text" />
             </td>
             </tr>
           </table>
-          <?php submit_button(__('Neue Nachricht anlegen')); ?>
+          <?php submit_button(__('Neue Nachricht anlegen', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Gespeicherte Nachrichten')?></h1>
+        <h1><?=__('Gespeicherte Nachrichten', 'LL_mailer')?></h1>
         
         <p>
 <?php
-          $messages = LL_mailer::db_get_messages('slug, subject, template_slug, last_modified');
+          $messages = LL_mailer::db_get_messages(array('slug', 'subject', 'template_slug', 'last_modified'));
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
           foreach ($messages as $message) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ') . $message['last_modified']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
 <?php
           }
 ?>
@@ -715,13 +732,13 @@ class LL_mailer
         $message_slug = $_GET['edit'];
         $message = LL_mailer::db_get_message_by_slug($message_slug);
         if (empty($message)) {
-          LL_mailer::message(sprintf(__('Es existiert keine Nachricht <b>%s</b>.'), $message_slug));
+          LL_mailer::message(sprintf(__('Es existiert keine Nachricht <b>%s</b>.', 'LL_mailer'), $message_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
           exit;
         }
         $templates = LL_mailer::db_get_templates('slug');
 ?>
-        <h1><?=__('Nachrichten')?> &gt; <?=$message_slug?></h1>
+        <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
@@ -729,13 +746,13 @@ class LL_mailer
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
           <table class="form-table">
             <tr valign="top">
-              <th scope="row"><?=__('Betreff')?></th>
+              <th scope="row"><?=__('Betreff', 'LL_mailer')?></th>
               <td>
                 <input type="text" name="subject" value="<?=esc_attr($message['subject'])?>" placeholder="Betreff" style="width: 100%;" />
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Vorlage')?></th>
+              <th scope="row"><?=__('Vorlage', 'LL_mailer')?></th>
               <td>
                 <select name="template_slug" style="min-width: 50%; max-width: 100%;">
                   <option value="">--</option>
@@ -750,13 +767,13 @@ class LL_mailer
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Inhalt (HTML)')?></th>
+              <th scope="row"><?=__('Inhalt (HTML)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_html" style="width: 100%;" rows=10><?=$message['body_html']?></textarea>
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Inhalt (Text)')?></th>
+              <th scope="row"><?=__('Inhalt (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$message['body_text']?></textarea>
               </td>
@@ -764,22 +781,22 @@ class LL_mailer
             <tr>
               <td></td>
               <td>
-                <i><?=__('Im Inhalt können <code>[POST "&lt;post-member&gt;"]</code> und <code>[META "&lt;meta-key&gt;"]</code> verwendet werden, um später an der Stelle standard Post-Eigenschaften und individuelle Post-Meta-Daten des entsprechenden Posts einzufügen.<br />Bspw.: <code>[POST "post_title"]</code> oder <code>[META "custom_post_image_url"]</code>')?></i>
+                <i><?=__('Im Inhalt können <code>[POST "&lt;post-member&gt;"]</code> und <code>[META "&lt;meta-key&gt;"]</code> verwendet werden, um später an der Stelle standard Post-Eigenschaften und individuelle Post-Meta-Daten des entsprechenden Posts einzufügen.<br />Bspw.: <code>[POST "post_title"]</code> oder <code>[META "custom_post_image_url"]</code>', 'LL_mailer')?></i>
               </td>
             </tr>
           </table>
-          <?php submit_button(__('Nachricht speichern')); ?>
+          <?php submit_button(__('Nachricht speichern', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Löschen')?></h1>
+        <h1><?=__('Löschen', 'LL_mailer')?></h1>
         
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_message_delete'); ?>
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
-          <?php submit_button(__('Nachricht löschen'), 'delete'); ?>
+          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), 'delete'); ?>
         </form>
 <?php
       } break;
@@ -797,21 +814,21 @@ class LL_mailer
         if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_message_add')) {
           $message_slug = sanitize_title($message_slug);
           if (empty($message_slug)) {
-            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Nachrichten-Slug verwendet werden.'), $_POST['message_slug']));
+            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Nachrichten-Slug verwendet werden.', 'LL_mailer'), $_POST['message_slug']));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
             exit;
           }
           
           $existing_message = LL_mailer::db_get_message_by_slug($message_slug);
           if (!empty($existing_message)) {
-            LL_mailer::message(sprintf(__('Die Nachricht <b>%s</b> existiert bereits.'), $message_slug));
+            LL_mailer::message(sprintf(__('Die Nachricht <b>%s</b> existiert bereits.', 'LL_mailer'), $message_slug));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
             exit;
           }
           
           LL_mailer::db_save_message(array('slug' => $message_slug));
           
-          LL_mailer::message(sprintf(__('Neue Nachricht <b>%s</b> angelegt.'), $message_slug));
+          LL_mailer::message(sprintf(__('Neue Nachricht <b>%s</b> angelegt.', 'LL_mailer'), $message_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_message_edit . $message_slug);
           exit;
         }
@@ -825,7 +842,7 @@ class LL_mailer
             'body_text' => strip_tags($_POST['body_text']) ?: null);
           LL_mailer::db_save_message($message);
           
-          LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gespeichert.'), $message_slug));
+          LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gespeichert.', 'LL_mailer'), $message_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_message_edit . $message_slug);
           exit;
         }
@@ -833,7 +850,7 @@ class LL_mailer
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_message_delete')) {
           LL_mailer::db_delete_message($message_slug);
           
-          LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gelöscht.'), $message_slug));
+          LL_mailer::message(sprintf(__('Nachricht <b>%s</b> gelöscht.', 'LL_mailer'), $message_slug));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
           exit;
         }
@@ -856,33 +873,33 @@ class LL_mailer
       case 'list':
       {
 ?>
-        <h1><?=__('Neuer Abonnent')?></h1>
+        <h1><?=__('Neuer Abonnent', 'LL_mailer')?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_subscriber_add'); ?>
           <table class="form-table">
             <tr valign="top">
-            <th scope="row"><?=__('E-Mail des neuen Abonnenten')?></th>
+            <th scope="row"><?=__('E-Mail des neuen Abonnenten', 'LL_mailer')?></th>
             <td>
-              <input type="email" name="subscriber_mail" placeholder="<?=__('name@email.de')?>" class="regular-text" />
+              <input type="email" name="subscriber_mail" placeholder="<?=__('name@email.de', 'LL_mailer')?>" class="regular-text" />
             </td>
             </tr>
           </table>
-          <?php submit_button(__('Neuen Abonnenten anlegen')); ?>
+          <?php submit_button(__('Neuen Abonnenten anlegen', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Gespeicherte Abonnenten')?></h1>
+        <h1><?=__('Gespeicherte Abonnenten', 'LL_mailer')?></h1>
         
         <p>
 <?php
-          $subscribers = LL_mailer::db_get_subscribers('mail, name, subscribed_at');
+          $subscribers = LL_mailer::db_get_subscribers(array('mail', 'subscribed_at'));
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
           foreach ($subscribers as $subscriber) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber['mail']?>"><b><?=$subscriber['mail']?></b></a> &nbsp; <?=$subscriber['name'] ?: '<i>(kein Name)</i>'?> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ') . $subscriber['subscribed_at']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber['mail']?>"><b><?=$subscriber['mail']?></b></a> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ', 'LL_mailer') . $subscriber['subscribed_at']?> )</span><br />
 <?php
           }
 ?>
@@ -895,37 +912,44 @@ class LL_mailer
         $subscriber_mail = $_GET['edit'];
         $subscriber = LL_mailer::db_get_subscriber_by_mail($subscriber_mail);
         if (empty($subscriber)) {
-          LL_mailer::message(sprintf(__('Es existiert kein Abonnent <b>%s</b>.'), $subscriber_mail));
+          LL_mailer::message(sprintf(__('Es existiert kein Abonnent <b>%s</b>.', 'LL_mailer'), $subscriber_mail));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
           exit;
         }
 ?>
-        <h1><?=__('Abonnenten')?> &gt; <?=$subscriber_mail?></h1>
+        <h1><?=__('Abonnenten', 'LL_mailer')?> &gt; <?=$subscriber_mail?></h1>
 
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_subscriber_edit'); ?>
           <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
           <table class="form-table">
-            <tr valign="top">
-              <th scope="row"><?=__('Name')?></th>
-              <td>
-                <input type="text" name="name" value="<?=esc_attr($subscriber['name'])?>" placeholder="Name" class="regular-text" />
-              </td>
-            </tr>
+<?php
+            $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+            foreach ($attributes as $attr => $attr_label) {
+?>
+              <tr valign="top">
+                <th scope="row"><?=$attr_label?></th>
+                <td>
+                  <input type="text" name="<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
+                </td>
+              </tr>
+<?php
+            }
+?>
           </table>
-          <?php submit_button(__('Abonnent speichern')); ?>
+          <?php submit_button(__('Abonnent speichern', 'LL_mailer')); ?>
         </form>
         
         <hr />
         
-        <h1><?=__('Löschen')?></h1>
+        <h1><?=__('Löschen', 'LL_mailer')?></h1>
         
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_subscriber_delete'); ?>
           <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
-          <?php submit_button(__('Abonnent löschen'), 'delete'); ?>
+          <?php submit_button(__('Abonnent löschen', 'LL_mailer'), 'delete'); ?>
         </form>
 <?php
       } break;
@@ -943,32 +967,37 @@ class LL_mailer
         if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_add')) {
           $subscriber_mail = trim($subscriber_mail);
           if (!filter_var($subscriber_mail, FILTER_VALIDATE_EMAIL)) {
-            LL_mailer::message(sprintf(__('Die E-Mail Adresse <b>%s</b> ist ungültig.'), $subscriber_mail));
+            LL_mailer::message(sprintf(__('Die E-Mail Adresse <b>%s</b> ist ungültig.', 'LL_mailer'), $subscriber_mail));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
             exit;
           }
           
           $existing_subscriber = LL_mailer::db_get_subscriber_by_mail($subscriber_mail);
           if (!empty($existing_subscriber)) {
-            LL_mailer::message(sprintf(__('Der Abonnent <b>%s</b> existiert bereits.'), $subscriber_mail));
+            LL_mailer::message(sprintf(__('Der Abonnent <b>%s</b> existiert bereits.', 'LL_mailer'), $subscriber_mail));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
             exit;
           }
           
           LL_mailer::db_save_subscriber(array('mail' => $subscriber_mail));
           
-          LL_mailer::message(sprintf(__('Neuer Abonnent <b>%s</b> angelegt.'), $subscriber_mail));
+          LL_mailer::message(sprintf(__('Neuer Abonnent <b>%s</b> angelegt.', 'LL_mailer'), $subscriber_mail));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $subscriber_mail);
           exit;
         }
         
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_edit')) {
           $subscriber = array(
-            'mail' => $subscriber_mail,
-            'name' => $_POST['name'] ?: null);
+            'mail' => $subscriber_mail);
+            
+          $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+          foreach ($attributes as $attr => $attr_label) {
+            $subscriber[$attr] = $_POST[$attr];
+          }
+          
           LL_mailer::db_save_subscriber($subscriber);
           
-          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gespeichert.'), $subscriber_mail));
+          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $subscriber_mail));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $subscriber_mail);
           exit;
         }
@@ -976,7 +1005,7 @@ class LL_mailer
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_delete')) {
           LL_mailer::db_delete_subscriber($subscriber_mail);
           
-          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gelöscht.'), $subscriber_mail));
+          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gelöscht.', 'LL_mailer'), $subscriber_mail));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
           exit;
         }
