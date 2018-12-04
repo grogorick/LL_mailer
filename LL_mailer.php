@@ -43,6 +43,8 @@ class LL_mailer
   const admin_page_subscribers      = LL_mailer::_ . 'subscribers';
   const admin_page_subscriber_edit  = LL_mailer::_ . 'subscribers&edit=';
   
+  const token_template_content      = '[CONTENT]';
+  
   const list_item = '&ndash; &nbsp;';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -737,6 +739,15 @@ class LL_mailer
           exit;
         }
         $templates = LL_mailer::db_get_templates('slug');
+        $template = LL_mailer::db_get_template_by_slug($message['template_slug']);
+        
+        $pos1 = strpos($template['body_html'], LL_mailer::token_template_content);
+        $pos2 = $pos1 + strlen(LL_mailer::token_template_content);
+        $template_body1 = substr($template['body_html'], 0, $pos1);
+        $template_body2 = substr($template['body_html'], $pos2);
+        
+        $template_prefix = '<html><head></head><body>';
+        $template_suffix = '</body></html>';
 ?>
         <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
 
@@ -757,9 +768,9 @@ class LL_mailer
                 <select name="template_slug" style="min-width: 50%; max-width: 100%;">
                   <option value="">--</option>
 <?php
-                  foreach ($templates as $template) {
+                  foreach ($templates as $template_slug) {
 ?>
-                    <option value="<?=esc_attr($template['slug'])?>" <?=$template['slug'] == $message['template_slug'] ? 'selected' : ''?>><?=$template['slug']?></option>
+                    <option value="<?=esc_attr($template_slug['slug'])?>" <?=$template_slug['slug'] == $message['template_slug'] ? 'selected' : ''?>><?=$template_slug['slug']?></option>
 <?php
                   }
 ?>
@@ -770,6 +781,37 @@ class LL_mailer
               <th scope="row"><?=__('Inhalt (HTML)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_html" style="width: 100%;" rows=10><?=$message['body_html']?></textarea>
+              </td>
+            </tr>
+            <tr valign="top">
+              <th scope="row"><?=__('Vorschau', 'LL_mailer')?></th>
+              <td>
+                <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
+                    $template_prefix . $template_body1 . $message['body_html'] . $template_body2 . $template_suffix
+                  )?>">
+                </iframe>
+                <div id="LL_mailer_template_body" style="display: none;"><?=$template['body_html']?></div>
+                <script>
+                  var body_div = jQuery('#LL_mailer_template_body');
+                  var timeout = null;
+                  var scrollY = 0;
+                  jQuery('[name="body_html"]').on('input', function() {
+                    var textarea = this;
+                    if (timeout !== null) {
+                      clearTimeout(timeout);
+                    }
+                    timeout = setTimeout(function() {
+                      timeout = null;
+                      var template_body = body_div.html();
+                      var new_body = template_body.replace('<?=LL_mailer::token_template_content?>', jQuery(textarea).val());
+                      scrollY = document.querySelector('#body_html_preview').contentWindow.scrollY;
+                      jQuery('#body_html_preview')[0].srcdoc = '<?=$template_prefix?>' + new_body + '<?=$template_suffix?>';
+                      timeout = setTimeout(function() {
+                        document.querySelector('#body_html_preview').contentWindow.scrollTo(0, scrollY);
+                      }, 100);
+                    }, 1000);
+                  });
+                </script>
               </td>
             </tr>
             <tr valign="top">
