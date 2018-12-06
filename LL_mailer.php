@@ -10,15 +10,7 @@ License:      Unlicense
 License URI:  https://unlicense.org/
 */
 
-if (!defined('ABSPATH')) header('Location: https://linda-liest.de/');
-
-
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
-require LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
-require LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
+if (!defined('ABSPATH')) { header('Location: https://linda-liest.de/'); exit; }
 
 
 
@@ -48,6 +40,9 @@ class LL_mailer
   const list_item = '&ndash; &nbsp;';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
+  
+  const html_prefix = '<html><head></head><body>';
+  const html_suffix = '</body></html>';
   
   
   
@@ -291,32 +286,54 @@ class LL_mailer
   {
     if (isset($request['send'])) {
       
-      if (isset($request['receiverName']) && isset($request['receiverMail'])) {
-        $to = array(
-          'name' => $request['receiverName'],
-          'mail' => $request['receiverMail']);
+      if (isset($request['to'])) {
+        $to = LL_mailer::db_get_subscriber_by_mail($request['to']);
+        if (is_null($to)) return 'Empfänger nicht gefunden.';
       }
+      else return 'Kein Empfänger angegeben.';
       
-      if (isset($to)) {
-        $mail = new PHPMailer(true /* enable exceptions */);
-        try {
-          $mail->isSendmail();
-          $mail->setFrom(get_option(LL_mailer::option_sender_mail), get_option(LL_mailer::option_sender_name));
-          $mail->addAddress($to['mail'], $to['name']);
-
-          // $mail->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
-
-          $mail->isHTML(true);
-          $mail->Subject = 'Test-Betreff';
-          $mail->Body    = 'This is the HTML message body <b>in bold!</b>';
-          $mail->AltBody = 'This is the body in plain text for non-HTML mail clients';
-
-          $success = $mail->send();
-          return 'Message has been sent';
-          
-        } catch (Exception $e) {
-          return 'Message could not be sent. Mailer Error: ' . $mail->ErrorInfo;
+      if (isset($request['msg'])) {
+        $msg = LL_mailer::db_get_message_by_slug($request['msg']);
+        if (is_null($msg)) return 'Nachricht nicht gefunden.';
+        $body = $msg['body_html'];
+        $body_text = $msg['body_text'];
+        
+        if (!is_null($msg['template_slug'])) {
+          $template = LL_mailer::db_get_template_by_slug($msg['template_slug']);
+          $body = str_replace(LL_mailer::token_template_content, $body, $template['body_html']);
+          $body_text = str_replace(LL_mailer::token_template_content, $body_text, $template['body_text']);
         }
+      }
+      else return 'Keine Nachricht angegeben.';
+      
+      
+      require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
+      $cssin = new FM\CSSIN();
+      $body = $cssin->inlineCSS('http://linda-liest.de/', $body);
+      
+      
+      require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
+      require LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
+      require LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
+      
+      $mail = new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
+      try {
+        $mail->isSendmail();
+        $mail->setFrom(get_option(LL_mailer::option_sender_mail), get_option(LL_mailer::option_sender_name));
+        $mail->addAddress($to['mail'], $to['dein-name']);
+
+        // $mail->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
+
+        $mail->isHTML(true);
+        $mail->Subject = utf8_decode($msg['subject']);
+        $mail->Body = utf8_decode($body);
+        $mail->AltBody = utf8_decode($body_text);
+
+        $success = $mail->send();
+        return 'Nachricht gesendet.';
+        
+      } catch (PHPMailer\PHPMailer\Exception $e) {
+        return 'Nachricht nicht gesendet. Fehler: ' . $mail->ErrorInfo;
       }
     }
     return null;
@@ -327,43 +344,7 @@ class LL_mailer
   static function post_status_transition($new_status, $old_status, $post)
   {
     if ($new_status == 'publish' && $old_status != 'publish') {
-      
-      $mail = new PHPMailer(true);                            // Passing `true` enables exceptions
-      try {
-        //Server settings
-        $mail->SMTPDebug = 2;                                 // Enable verbose debug output
-        $mail->isSMTP();                                      // Set mailer to use SMTP
-        $mail->Host = 'smtp1.example.com;smtp2.example.com';  // Specify main and backup SMTP servers
-        $mail->SMTPAuth = true;                               // Enable SMTP authentication
-        $mail->Username = 'user@example.com';                 // SMTP username
-        $mail->Password = 'secret';                           // SMTP password
-        $mail->SMTPSecure = 'tls';                            // Enable TLS encryption, `ssl` also accepted
-        $mail->Port = 587;                                    // TCP port to connect to
-
-        //Recipients
-        $mail->setFrom('from@example.com', 'Mailer');
-        $mail->addAddress('joe@example.net', 'Joe User');     // Add a recipient
-        $mail->addAddress('ellen@example.com');               // Name is optional
-        $mail->addReplyTo('info@example.com', 'Information');
-        $mail->addCC('cc@example.com');
-        $mail->addBCC('bcc@example.com');
-
-        //Attachments
-        $mail->addAttachment('/var/tmp/file.tar.gz');         // Add attachments
-        $mail->addAttachment('/tmp/image.jpg', 'new.jpg');    // Optional name
-
-        //Content
-        $mail->isHTML(true);                                  // Set email format to HTML
-        $mail->Subject = 'Here is the subject';
-        $mail->Body    = 'This is the HTML message body <b>in bold!</b>';
-        $mail->AltBody = 'This is the body in plain text for non-HTML mail clients';
-
-        $mail->send();
-        echo 'Message has been sent';
-        
-      } catch (Exception $e) {
-        echo 'Message could not be sent. Mailer Error: ' . $mail->ErrorInfo;
-      }
+      LL_mailer::message('Jetzt würde die E-Mail an die Abonnenten rausgehen :)');
     }
   }
 
@@ -584,6 +565,33 @@ class LL_mailer
               </td>
             </tr>
             <tr valign="top">
+              <th scope="row"><?=__('Vorschau', 'LL_mailer')?></th>
+              <td>
+                <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
+                    LL_mailer::html_prefix . $template['body_html'] . LL_mailer::html_suffix
+                  )?>">
+                </iframe>
+                <script>
+                  var timeout = null;
+                  var scrollY = 0;
+                  jQuery('[name="body_html"]').on('input', function() {
+                    var textarea = this;
+                    if (timeout !== null) {
+                      clearTimeout(timeout);
+                    }
+                    timeout = setTimeout(function() {
+                      timeout = null;
+                      scrollY = document.querySelector('#body_html_preview').contentWindow.scrollY;
+                      jQuery('#body_html_preview')[0].srcdoc = '<?=LL_mailer::html_prefix?>' + jQuery(textarea).val() + '<?=LL_mailer::html_suffix?>';
+                      timeout = setTimeout(function() {
+                        document.querySelector('#body_html_preview').contentWindow.scrollTo(0, scrollY);
+                      }, 100);
+                    }, 1000);
+                  });
+                </script>
+              </td>
+            </tr>
+            <tr valign="top">
               <th scope="row"><?=__('Layout (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$template['body_text']?></textarea>
@@ -745,9 +753,6 @@ class LL_mailer
         $pos2 = $pos1 + strlen(LL_mailer::token_template_content);
         $template_body1 = substr($template['body_html'], 0, $pos1);
         $template_body2 = substr($template['body_html'], $pos2);
-        
-        $template_prefix = '<html><head></head><body>';
-        $template_suffix = '</body></html>';
 ?>
         <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
 
@@ -787,7 +792,7 @@ class LL_mailer
               <th scope="row"><?=__('Vorschau', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
-                    $template_prefix . $template_body1 . $message['body_html'] . $template_body2 . $template_suffix
+                    LL_mailer::html_prefix . $template_body1 . $message['body_html'] . $template_body2 . LL_mailer::html_suffix
                   )?>">
                 </iframe>
                 <div id="LL_mailer_template_body" style="display: none;"><?=$template['body_html']?></div>
@@ -805,7 +810,7 @@ class LL_mailer
                       var template_body = body_div.html();
                       var new_body = template_body.replace('<?=LL_mailer::token_template_content?>', jQuery(textarea).val());
                       scrollY = document.querySelector('#body_html_preview').contentWindow.scrollY;
-                      jQuery('#body_html_preview')[0].srcdoc = '<?=$template_prefix?>' + new_body + '<?=$template_suffix?>';
+                      jQuery('#body_html_preview')[0].srcdoc = '<?=LL_mailer::html_prefix?>' + new_body + '<?=LL_mailer::html_suffix?>';
                       timeout = setTimeout(function() {
                         document.querySelector('#body_html_preview').contentWindow.scrollTo(0, scrollY);
                       }, 100);
