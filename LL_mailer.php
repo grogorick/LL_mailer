@@ -570,30 +570,12 @@ class LL_mailer
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Vorschau', 'LL_mailer')?></th>
+              <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
                     LL_mailer::html_prefix . $template['body_html'] . LL_mailer::html_suffix
                   )?>">
                 </iframe>
-                <script>
-                  var timeout = null;
-                  var preview = document.querySelector('#body_html_preview');
-                  jQuery('[name="body_html"]').on('input', function() {
-                    var textarea = this;
-                    if (timeout !== null) {
-                      clearTimeout(timeout);
-                    }
-                    timeout = setTimeout(function() {
-                      timeout = null;
-                      var scrollY = preview.contentWindow.scrollY;
-                      preview.srcdoc = '<?=LL_mailer::html_prefix?>' + textarea.value + '<?=LL_mailer::html_suffix?>';
-                      timeout = setTimeout(function() {
-                        preview.contentWindow.scrollTo(0, scrollY);
-                      }, 100);
-                    }, 1000);
-                  });
-                </script>
               </td>
             </tr>
             <tr valign="top">
@@ -611,6 +593,12 @@ class LL_mailer
           </table>
           <?php submit_button(__('Vorlage speichern', 'LL_mailer')); ?>
         </form>
+        <script>
+          var preview = document.querySelector('#body_html_preview');
+          jQuery('[name="body_html"]').on('input', function() {
+            preview.contentWindow.document.body.innerHTML = this.value;
+          });
+        </script>
         
         <hr />
         
@@ -751,13 +739,21 @@ class LL_mailer
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_messages);
           exit;
         }
-        $templates = LL_mailer::db_get_templates('slug');
-        $template = LL_mailer::db_get_template_by_slug($message['template_slug']);
+        $preview_body_html = $message['body_html'];
+        $preview_body_text = $message['body_text'];
         
-        $pos1 = strpos($template['body_html'], LL_mailer::token_template_content);
-        $pos2 = $pos1 + strlen(LL_mailer::token_template_content);
-        $template_body1 = substr($template['body_html'], 0, $pos1);
-        $template_body2 = substr($template['body_html'], $pos2);
+        $templates = LL_mailer::db_get_templates('slug');
+        
+        $template_body_html = '';
+        $template_body_text = '';
+        if (!is_null($message['template_slug'])) {
+          $template = LL_mailer::db_get_template_by_slug($message['template_slug']);
+          $template_body_html = $template['body_html'];
+          $template_body_text = $template['body_text'];
+          
+          $preview_body_html = str_replace(LL_mailer::token_template_content, $message['body_html'], $template_body_html);
+          $preview_body_text = str_replace(LL_mailer::token_template_content, $message['body_text'], $template_body_text);
+        }
 ?>
         <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
 
@@ -794,44 +790,13 @@ class LL_mailer
               </td>
             </tr>
             <tr valign="top">
-              <th scope="row"><?=__('Vorschau', 'LL_mailer')?></th>
+              <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
-                    LL_mailer::html_prefix . $template_body1 . $message['body_html'] . $template_body2 . LL_mailer::html_suffix
+                    LL_mailer::html_prefix . $preview_body_html . LL_mailer::html_suffix
                   )?>">
                 </iframe>
-                <div id="LL_mailer_template_body" style="display: none;"><?=$template['body_html']?></div>
-                <script>
-                  var template_select = document.querySelector('[name="template_slug"]');
-                  var textarea = document.querySelector('[name="body_html"]');
-                  var template_body_div = document.querySelector('#LL_mailer_template_body');
-                  var preview = document.querySelector('#body_html_preview');
-                  var timeout = null;
-                  function updatePreview() {
-                    var template_body = template_body_div.innerHTML;
-                    var new_body = template_body.replace('<?=LL_mailer::token_template_content?>', textarea.value);
-                    var scrollY = preview.contentWindow.scrollY;
-                    preview.srcdoc = '<?=LL_mailer::html_prefix?>' + new_body + '<?=LL_mailer::html_suffix?>';
-                    setTimeout(function() {
-                      preview.contentWindow.scrollTo(0, scrollY);
-                    }, 100);
-                  }
-                  jQuery(textarea).on('input', function() {
-                    if (timeout !== null) {
-                      clearTimeout(timeout);
-                    }
-                    timeout = setTimeout(function() {
-                      timeout = null;
-                      updatePreview();
-                    }, 1000);
-                  });
-                  jQuery(template_select).on('input', function() {
-                    jQuery.getJSON('/wp-json/LL_mailer/v1/get?template=' + template_select.value, function(new_template) {
-                      template_body_div.innerHTML = new_template.body_html;
-                      updatePreview();
-                    });
-                  });
-                </script>
+                <div id="LL_mailer_template_body_html" style="display: none;"><?=$template_body_html?></div>
               </td>
             </tr>
             <tr valign="top">
@@ -840,15 +805,49 @@ class LL_mailer
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$message['body_text']?></textarea>
               </td>
             </tr>
+            <tr valign="top">
+              <th scope="row"><?=__('Vorschau (Text)', 'LL_mailer')?></th>
+              <td>
+                <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
+                <div id="LL_mailer_template_body_text" style="display: none;"><?=$template_body_text?></div>
+              </td>
+            </tr>
             <tr>
               <td></td>
               <td>
-                <i><?=__('Im Inhalt können <code>[POST "&lt;post-member&gt;"]</code> und <code>[META "&lt;meta-key&gt;"]</code> verwendet werden, um später an der Stelle standard Post-Eigenschaften und individuelle Post-Meta-Daten des entsprechenden Posts einzufügen.<br />Bspw.: <code>[POST "post_title"]</code> oder <code>[META "custom_post_image_url"]</code>', 'LL_mailer')?></i>
+                <i><?=__('Im Inhalt (HTML und Text) können folgende Platzhalter verwendet werden:<br>' .
+                  LL_mailer::list_item . ' <code>[POST "{WP_POST_ATTRIBUTE}"]</code> für Wordpress WP_Post Attribute<br />' .
+                  LL_mailer::list_item . ' <code>[META "{POST_META}"]</code> für Post-Metadaten, zB. von Plugins', 'LL_mailer')?></i>
               </td>
             </tr>
           </table>
           <?php submit_button(__('Nachricht speichern', 'LL_mailer')); ?>
         </form>
+        <script>
+          var template_select = document.querySelector('[name="template_slug"]');
+          var textarea_html = document.querySelector('[name="body_html"]');
+          var textarea_text = document.querySelector('[name="body_text"]');
+          var template_body_html_div = document.querySelector('#LL_mailer_template_body_html');
+          var template_body_text_div = document.querySelector('#LL_mailer_template_body_text');
+          var preview_html = document.querySelector('#body_html_preview');
+          var preview_text = document.querySelector('#body_text_preview');
+          function updatePreviewHtml(preview, template_body_div, textarea) {
+            preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_template_content?>', textarea.value);
+          }
+          function updatePreviewText(preview, template_body_div, textarea) {
+            preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_template_content?>', textarea.value);
+          }
+          jQuery(textarea_html).on('input', function() { updatePreviewHtml(preview_html, template_body_html_div, textarea_html); });
+          jQuery(textarea_text).on('input', function() { updatePreviewText(preview_text, template_body_text_div, textarea_text); });
+          jQuery(template_select).on('input', function() {
+            jQuery.getJSON('/wp-json/LL_mailer/v1/get?template=' + template_select.value, function(new_template) {
+              template_body_html_div.innerHTML = (new_template === null) ? '<?=LL_mailer::token_template_content?>' : new_template.body_html;
+              template_body_text_div.innerHTML = (new_template === null) ? '<?=LL_mailer::token_template_content?>' : new_template.body_text;
+              updatePreviewHtml(preview_html, template_body_html_div, textarea_html);
+              updatePreviewText(preview_text, template_body_text_div, textarea_text);
+            });
+          });
+        </script>
         
         <hr />
         
