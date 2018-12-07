@@ -282,6 +282,13 @@ class LL_mailer
   
   
   
+  static function json_get($request)
+  {
+    if (isset($request['template'])) {
+      return LL_mailer::db_get_template_by_slug($request['template']);
+    }
+  }
+  
   static function subscribe($request)
   {
     if (isset($request['send'])) {
@@ -339,8 +346,6 @@ class LL_mailer
     return null;
   }
   
-  
-
   static function post_status_transition($new_status, $old_status, $post)
   {
     if ($new_status == 'publish' && $old_status != 'publish') {
@@ -573,7 +578,7 @@ class LL_mailer
                 </iframe>
                 <script>
                   var timeout = null;
-                  var scrollY = 0;
+                  var preview = document.querySelector('#body_html_preview');
                   jQuery('[name="body_html"]').on('input', function() {
                     var textarea = this;
                     if (timeout !== null) {
@@ -581,10 +586,10 @@ class LL_mailer
                     }
                     timeout = setTimeout(function() {
                       timeout = null;
-                      scrollY = document.querySelector('#body_html_preview').contentWindow.scrollY;
-                      jQuery('#body_html_preview')[0].srcdoc = '<?=LL_mailer::html_prefix?>' + jQuery(textarea).val() + '<?=LL_mailer::html_suffix?>';
+                      var scrollY = preview.contentWindow.scrollY;
+                      preview.srcdoc = '<?=LL_mailer::html_prefix?>' + textarea.value + '<?=LL_mailer::html_suffix?>';
                       timeout = setTimeout(function() {
-                        document.querySelector('#body_html_preview').contentWindow.scrollTo(0, scrollY);
+                        preview.contentWindow.scrollTo(0, scrollY);
                       }, 100);
                     }, 1000);
                   });
@@ -797,24 +802,34 @@ class LL_mailer
                 </iframe>
                 <div id="LL_mailer_template_body" style="display: none;"><?=$template['body_html']?></div>
                 <script>
-                  var body_div = jQuery('#LL_mailer_template_body');
+                  var template_select = document.querySelector('[name="template_slug"]');
+                  var textarea = document.querySelector('[name="body_html"]');
+                  var template_body_div = document.querySelector('#LL_mailer_template_body');
+                  var preview = document.querySelector('#body_html_preview');
                   var timeout = null;
-                  var scrollY = 0;
-                  jQuery('[name="body_html"]').on('input', function() {
-                    var textarea = this;
+                  function updatePreview() {
+                    var template_body = template_body_div.innerHTML;
+                    var new_body = template_body.replace('<?=LL_mailer::token_template_content?>', textarea.value);
+                    var scrollY = preview.contentWindow.scrollY;
+                    preview.srcdoc = '<?=LL_mailer::html_prefix?>' + new_body + '<?=LL_mailer::html_suffix?>';
+                    setTimeout(function() {
+                      preview.contentWindow.scrollTo(0, scrollY);
+                    }, 100);
+                  }
+                  jQuery(textarea).on('input', function() {
                     if (timeout !== null) {
                       clearTimeout(timeout);
                     }
                     timeout = setTimeout(function() {
                       timeout = null;
-                      var template_body = body_div.html();
-                      var new_body = template_body.replace('<?=LL_mailer::token_template_content?>', jQuery(textarea).val());
-                      scrollY = document.querySelector('#body_html_preview').contentWindow.scrollY;
-                      jQuery('#body_html_preview')[0].srcdoc = '<?=LL_mailer::html_prefix?>' + new_body + '<?=LL_mailer::html_suffix?>';
-                      timeout = setTimeout(function() {
-                        document.querySelector('#body_html_preview').contentWindow.scrollTo(0, scrollY);
-                      }, 100);
+                      updatePreview();
                     }, 1000);
+                  });
+                  jQuery(template_select).on('input', function() {
+                    jQuery.getJSON('/wp-json/LL_mailer/v1/get?template=' + template_select.value, function(new_template) {
+                      template_body_div.innerHTML = new_template.body_html;
+                      updatePreview();
+                    });
                   });
                 </script>
               </td>
@@ -1089,6 +1104,10 @@ class LL_mailer
 
     add_action('rest_api_init', function ()
     {
+      register_rest_route('LL_mailer/v1', '/get', array(
+        'methods' => 'GET',
+        'callback' => LL_mailer::_('json_get')
+      ));
       register_rest_route('LL_mailer/v1', '/subscribe', array(
         'methods' => 'GET',
         'callback' => LL_mailer::_('subscribe')
