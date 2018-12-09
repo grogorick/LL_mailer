@@ -930,15 +930,14 @@ class LL_mailer
               }
 ?>
             </select>
-            <?php submit_button(__('senden', 'LL_mailer'), '', '', false); ?>
+            <?php submit_button(__('senden', 'LL_mailer'), '', '', false); ?> &nbsp;
             <i id="response"></i>
           </form>
           <script>
             var to_select = document.querySelector('#LL_mailer_testmail #to');
             var response_tag = document.querySelector('#LL_mailer_testmail #response');
             jQuery('#LL_mailer_testmail').submit(function(e) {
-              var url = '<?=LL_mailer::json_url() . 'testmail?msg=' . $message_slug . '&to='?>';
-              jQuery.getJSON(url, function(response) {
+              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + to_select.value, function(response) {
                 response_tag.innerHTML = response;
               });
               e.preventDefault();
