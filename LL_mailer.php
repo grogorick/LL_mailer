@@ -38,9 +38,11 @@ class LL_mailer
   const admin_page_subscribers        = LL_mailer::_ . 'subscribers';
   const admin_page_subscriber_edit    = LL_mailer::_ . 'subscribers&edit=';
   
-  const token_template_content        = '[CONTENT]';
+  const token_CONTENT                 = '[CONTENT]';
+  const token_SUBSCRIBER              = array('pattern' => '/\[SUBSCRIBER "([^"]+)" "([^"]+)" "([^"]+)" "([^"]+)"\]/',
+                                              'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]');
   
-  const list_item = '&ndash; &nbsp;';
+  const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
   
@@ -80,7 +82,7 @@ class LL_mailer
     $msgs = LL_mailer::get_option_array(LL_mailer::option_msg);
     if (!empty($msgs)) {
       ?><div class="notice notice-info is-dismissible"><?php
-      foreach ($msgs as $msg) {
+      foreach ($msgs as &$msg) {
         if (!isset($first_line)) $first_line = true; else echo '<hr />';
         ?><p><?=nl2br($msg)?></p><?php
       }
@@ -316,11 +318,38 @@ class LL_mailer
         
         if (!is_null($msg['template_slug'])) {
           $template = LL_mailer::db_get_template_by_slug($msg['template_slug']);
-          $body = str_replace(LL_mailer::token_template_content, $body, $template['body_html']);
-          $body_text = str_replace(LL_mailer::token_template_content, $body_text, $template['body_text']);
+          $body = str_replace(LL_mailer::token_CONTENT, $body, $template['body_html']);
+          $body_text = str_replace(LL_mailer::token_CONTENT, $body_text, $template['body_text']);
         }
       }
       else return 'Keine Nachricht angegeben.';
+      
+      
+      
+      $STR = 0;
+      $POSITION = 1;
+      
+      preg_match_all(LL_mailer::token_SUBSCRIBER['pattern'], $body_text, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+      if (!empty($matches)) {
+        $FULL = 0;
+        $PREFIX = 1;
+        $ATTR = 2;
+        $SUFFIX = 3;
+        $ALTERNATIVE = 4;
+        $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
+        foreach ($matches as &$match) {
+          $attr = $match[$ATTR][$STR];
+          if (in_array($attr, $attributes)) {
+            if (!empty($to[$attr]))
+              $replacement = $match[$PREFIX][$STR] . $to[$attr] . $match[$SUFFIX][$STR];
+            else
+              $replacement = $match[$ALTERNATIVE][$STR];
+            $body_text = str_replace($match[$FULL][$STR], $replacement, $body_text);
+          }
+        }
+      }
+      return '<br />' . nl2br($body_text);
+      
       
       
       require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
@@ -392,7 +421,7 @@ class LL_mailer
       <form method="post" action="options.php">
         <?php settings_fields(LL_mailer::_ . '_general'); ?>
         <table class="form-table">
-          <tr valign="top">
+          <tr>
             <th scope="row"><?=__('Absender', 'LL_mailer')?></th>
             <td>
               <input type="text" name="<?=LL_mailer::option_sender_name?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_name))?>" placeholder="Name" class="regular-text"/>
@@ -404,7 +433,7 @@ class LL_mailer
       </form>
       <hr />
       <table class="form-table">
-        <tr valign="top">
+        <tr>
           <th scope="row"><?=__('Abonnenten-Attribute', 'LL_mailer')?></th>
           <td>
 <?php
@@ -414,9 +443,20 @@ class LL_mailer
                 LL_mailer::subscriber_attribute_mail => $attributes[LL_mailer::subscriber_attribute_mail],
                 LL_mailer::subscriber_attribute_name => $attributes[LL_mailer::subscriber_attribute_name]),
               'dynamic' => array_filter($attributes, function($key) { return !LL_mailer::is_predefined_subscriber_attribute($key); }, ARRAY_FILTER_USE_KEY));
-            foreach ($attribute_groups as $group => $attrs) {
+?>
+            <style>
+              .LL_mailer_attributes_table td {
+                padding-top: 5px;
+                padding-bottom: 0px;
+              }
+            </style>
+            <table class="LL_mailer_attributes_table">
+            <tr><td><?=__('Attribut')?></td><td><?=__('Platzhalter')?></td></tr>
+<?php
+            foreach ($attribute_groups as $group => &$attrs) {
               foreach ($attrs as $attr => $attr_label) {
 ?>
+              <tr><td>
                 <form method="post" action="admin-post.php" style="display: inline;">
                   <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
                   <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_edit'); ?>
@@ -424,6 +464,8 @@ class LL_mailer
                   <input type="text" name="new_attribute_label" value="<?=$attr_label?>" class="regular-text" />
                   <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
                 </form>
+              </td><td><code>"<?=$attr?>"</code></td>
+              <td>
 <?php
                 if ($group == 'dynamic') {
 ?>
@@ -437,17 +479,20 @@ class LL_mailer
 <?php
                 }
 ?>
-                <br />
+              </td></tr>
 <?php
               }
             }
 ?>
-            <form method="post" action="admin-post.php" style="display: inline;">
-              <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
-              <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_add'); ?>
-              <input type="text" name="attribute" placeholder="<?=__('Neues Attribut', 'LL_mailer')?>" class="regular-text" />
-              <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
-            </form>
+              <tr><td colspan="3">
+                <form method="post" action="admin-post.php" style="display: inline;">
+                  <input type="hidden" name="action" value="<?=LL_mailer::_?>_settings_action" />
+                  <?php wp_nonce_field(LL_mailer::_ . '_subscriber_attribute_add'); ?>
+                  <input type="text" name="attribute" placeholder="<?=__('Neues Attribut', 'LL_mailer')?>" class="regular-text" />
+                  <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
+                </form>
+              </td></tr>
+            </table>
           </td>
         </tr>
       </table>
@@ -544,7 +589,7 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_template_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_template_add'); ?>
           <table class="form-table">
-            <tr valign="top">
+            <tr>
             <th scope="row"><?=__('Slug für neue Vorlage', 'LL_mailer')?></th>
             <td>
               <input type="text" name="template_slug" placeholder="<?=__('meine-vorlage', 'LL_mailer')?>" class="regular-text" /> &nbsp;
@@ -562,7 +607,7 @@ class LL_mailer
 <?php
           $templates = LL_mailer::db_get_templates(array('slug', 'last_modified'));
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_template_edit;
-          foreach ($templates as $template) {
+          foreach ($templates as &$template) {
 ?>
             <?=LL_mailer::list_item?> <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $template['last_modified']?> )</span><br />
 <?php
@@ -589,13 +634,13 @@ class LL_mailer
           <?php wp_nonce_field(LL_mailer::_ . '_template_edit'); ?>
           <input type="hidden" name="template_slug" value="<?=$template_slug?>" />
           <table class="form-table">
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Layout (HTML)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_html" style="width: 100%;" rows=10><?=$template['body_html']?></textarea>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
@@ -604,20 +649,19 @@ class LL_mailer
                 </iframe>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Layout (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$template['body_text']?></textarea>
               </td>
             </tr>
             <tr>
-              <td></td>
+              <td style="vertical-align: top;"><?php submit_button(__('Vorlage speichern', 'LL_mailer'), 'primary', '', false); ?></td>
               <td>
-                <i><?=__('Im Layout muss <b>[CONTENT]</b> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.', 'LL_mailer')?></i>
+                <?=__('Im Layout (HTML und Text) muss <code>[CONTENT]</code> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.', 'LL_mailer')?>
               </td>
             </tr>
           </table>
-          <?php submit_button(__('Vorlage speichern', 'LL_mailer')); ?>
         </form>
         <script>
           var preview = document.querySelector('#body_html_preview');
@@ -665,7 +709,7 @@ class LL_mailer
         if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_template_add')) {
           $template_slug = sanitize_title($template_slug);
           if (empty($template_slug)) {
-            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Vorlagen-Slug verwendet werden.', 'LL_mailer'), $_POST['template_slug']));
+            LL_mailer::message(sprintf(__('<b>%s</b> kann nicht als Vorlagen-Slug verwendet werden.', 'LL_mailer'), $template_slug));
             wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_templates);
             exit;
           }
@@ -728,7 +772,7 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_message_add'); ?>
           <table class="form-table">
-            <tr valign="top">
+            <tr>
             <th scope="row"><?=__('Slug für neue Nachricht', 'LL_mailer')?></th>
             <td>
               <input type="text" name="message_slug" placeholder="<?=__('meine-nachricht', 'LL_mailer')?>" class="regular-text" /> &nbsp;
@@ -746,7 +790,7 @@ class LL_mailer
 <?php
           $messages = LL_mailer::db_get_messages(array('slug', 'subject', 'template_slug', 'last_modified'));
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
-          foreach ($messages as $message) {
+          foreach ($messages as &$message) {
 ?>
             <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
 <?php
@@ -777,8 +821,8 @@ class LL_mailer
           $template_body_html = $template['body_html'];
           $template_body_text = $template['body_text'];
           
-          $preview_body_html = str_replace(LL_mailer::token_template_content, $message['body_html'], $template_body_html);
-          $preview_body_text = str_replace(LL_mailer::token_template_content, $message['body_text'], $template_body_text);
+          $preview_body_html = str_replace(LL_mailer::token_CONTENT, $message['body_html'], $template_body_html);
+          $preview_body_text = str_replace(LL_mailer::token_CONTENT, $message['body_text'], $template_body_text);
         }
 ?>
         <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
@@ -788,19 +832,19 @@ class LL_mailer
           <?php wp_nonce_field(LL_mailer::_ . '_message_edit'); ?>
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
           <table class="form-table">
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Betreff', 'LL_mailer')?></th>
               <td>
                 <input type="text" name="subject" value="<?=esc_attr($message['subject'])?>" placeholder="Betreff" style="width: 100%;" />
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Vorlage', 'LL_mailer')?></th>
               <td>
                 <select name="template_slug" style="min-width: 50%; max-width: 100%;">
                   <option value="">--</option>
 <?php
-                  foreach ($templates as $template_slug) {
+                  foreach ($templates as &$template_slug) {
 ?>
                     <option value="<?=esc_attr($template_slug['slug'])?>" <?=$template_slug['slug'] == $message['template_slug'] ? 'selected' : ''?>><?=$template_slug['slug']?></option>
 <?php
@@ -810,13 +854,13 @@ class LL_mailer
                 <a id="LL_mailer_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $message['template_slug']?>">(<?=__('Vorlage bearbeiten', 'LL_mailer')?>)</a>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Inhalt (HTML)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_html" style="width: 100%;" rows=10><?=$message['body_html']?></textarea>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
@@ -826,13 +870,13 @@ class LL_mailer
                 <div id="LL_mailer_template_body_html" style="display: none;"><?=$template_body_html?></div>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Inhalt (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea name="body_text" style="width: 100%;" rows=10><?=$message['body_text']?></textarea>
               </td>
             </tr>
-            <tr valign="top">
+            <tr>
               <th scope="row"><?=__('Vorschau (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
@@ -840,15 +884,50 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <td></td>
+              <td style="vertical-align: top;"><?php submit_button(__('Nachricht speichern', 'LL_mailer'), 'primary', '', false); ?></td>
               <td>
-                <i><?=__('Im Inhalt (HTML und Text) können folgende Platzhalter verwendet werden:<br>' .
-                  LL_mailer::list_item . ' <code>[POST "{WP_POST_ATTRIBUTE}"]</code> für Wordpress WP_Post Attribute<br />' .
-                  LL_mailer::list_item . ' <code>[META "{POST_META}"]</code> für Post-Metadaten, zB. von Plugins', 'LL_mailer')?></i>
+                <p><?=__('Im Inhalt (HTML und Text) können folgende Platzhalter verwendet werden.', 'LL_mailer')?></p>
+                
+                <style>
+                  .LL_mailer_token_table td {
+                    padding: 10px 0px 0px 0px;
+                    vertical-align: top;
+                  }
+                  .LL_mailer_token_table td:nth-child(n+2) {
+                    border-bottom: 1px dashed #ddd;
+                  }
+                  .LL_mailer_token_table tr:last-child td {
+                    border-bottom: 0;
+                  }
+                  .LL_mailer_token_table td:nth-child(3) {
+                    padding-left: 20px;
+                  }
+                </style>
+                <table class="LL_mailer_token_table">
+                  <tr><td colspan=2><?=__('Post-Benachrichtigungen:')?></td></tr>
+                  <tr>
+                    <td><?=LL_mailer::list_item?></td>
+                    <td><code>[POST "<i>WP_POST_ATTRIBUTE</i>"]</code></td>
+                    <td><?=__('WP_Post Attribute, zB. <i>post_title</i> und <i>post_excerpt</i>', 'LL_mailer')?> <a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">(?)</a></td>
+                  </tr><tr>
+                    <td><?=LL_mailer::list_item?></td>
+                    <td><code>[META "<i>POST_META</i>"]</code></td>
+                    <td><?=__('Individuelle Post-Metadaten, zB. von Plugins', 'LL_mailer')?> <a href="https://codex.wordpress.org/Custom_Fields" target="_blank">(?)</a></td>
+                  </tr>
+                  <tr><td colspan=2><?=__('Willkommen-Email:')?></td></tr>
+                  <tr>
+                    <td><?=LL_mailer::list_item?></td>
+                    <td><code><?=LL_mailer::token_SUBSCRIBER['html']?></code></td>
+                    <td><?=__('Abonnenten-Attribut. Prefix & Suffix werden vor & nach dem Attribut angezeigt, wenn es für den Abonnenten nicht leer ist.', 'LL_mailer')?></td>
+                  </tr><tr>
+                    <td><?=LL_mailer::list_item?></td>
+                    <td><code>[CONFIRMATIONURL]</code></td>
+                    <td><?=__('URL für Bestätigungs-Link.', 'LL_mailer')?></td>
+                  </tr>
+                </table>
               </td>
             </tr>
           </table>
-          <?php submit_button(__('Nachricht speichern', 'LL_mailer')); ?>
         </form>
         <script>
           var template_select = document.querySelector('[name="template_slug"]');
@@ -861,10 +940,10 @@ class LL_mailer
           var preview_text = document.querySelector('#body_text_preview');
           var show_hide = [template_select, textarea_html, textarea_text];
           function updatePreviewHtml(preview, template_body_div, textarea) {
-            preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_template_content?>', textarea.value);
+            preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT?>', textarea.value);
           }
           function updatePreviewText(preview, template_body_div, textarea) {
-            preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_template_content?>', textarea.value);
+            preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT?>', textarea.value);
           }
           jQuery(textarea_html).on('input', function() { updatePreviewHtml(preview_html, template_body_html_div, textarea_html); });
           jQuery(textarea_text).on('input', function() { updatePreviewText(preview_text, template_body_text_div, textarea_text); });
@@ -872,8 +951,8 @@ class LL_mailer
             if (template_select.value === '') {
               template_edit_link.href = '';
               template_edit_link.style.display = 'none';
-              template_body_html_div.innerHTML = '<?=LL_mailer::token_template_content?>';
-              template_body_text_div.innerHTML = '<?=LL_mailer::token_template_content?>';
+              template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT?>';
+              template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT?>';
               updatePreviewHtml(preview_html, template_body_html_div, textarea_html);
               updatePreviewText(preview_text, template_body_text_div, textarea_text);
             }
@@ -923,7 +1002,7 @@ class LL_mailer
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
             <select id="to" name="to">
 <?php
-              foreach ($subscribers as $subscriber) {
+              foreach ($subscribers as &$subscriber) {
 ?>
                 <option value="<?=$subscriber[LL_mailer::subscriber_attribute_mail]?>"><?=$subscriber[LL_mailer::subscriber_attribute_name] . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></option>
 <?php
@@ -1025,7 +1104,7 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_subscriber_add'); ?>
           <table class="form-table">
-            <tr valign="top">
+            <tr>
             <th scope="row"><?=__('E-Mail des neuen Abonnenten', 'LL_mailer')?></th>
             <td>
               <input type="email" name="subscriber_mail" placeholder="<?=__('name@email.de', 'LL_mailer')?>" class="regular-text" /> &nbsp;
@@ -1043,7 +1122,7 @@ class LL_mailer
 <?php
           $subscribers = LL_mailer::db_get_subscribers('*');
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
-          foreach ($subscribers as $subscriber) {
+          foreach ($subscribers as &$subscriber) {
 ?>
             <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber[LL_mailer::subscriber_attribute_mail]?>"><b><?=($subscriber[LL_mailer::subscriber_attribute_name] ?? '</b><i>(' . __('kein Name') . ')</i><b>') . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></b></a> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ', 'LL_mailer') . $subscriber['subscribed_at']?> )</span><br />
 <?php
@@ -1074,7 +1153,7 @@ class LL_mailer
             $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
             foreach ($attributes as $attr => $attr_label) {
 ?>
-              <tr valign="top">
+              <tr>
                 <th scope="row"><?=$attr_label?></th>
                 <td>
                   <input type="text" name="<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
@@ -1137,8 +1216,8 @@ class LL_mailer
             LL_mailer::subscriber_attribute_mail => $subscriber_mail);
             
           $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
-          foreach ($attributes as $attr => $attr_label) {
-            $subscriber[$attr] = $_POST[$attr];
+          foreach (array_keys($attributes) as $attr) {
+            $subscriber[$attr] = $_POST[$attr] ?: null;
           }
           
           LL_mailer::db_save_subscriber($subscriber);
