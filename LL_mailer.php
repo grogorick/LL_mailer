@@ -18,29 +18,42 @@ class LL_mailer
 {
   const _ = 'LL_mailer';
   
-  const option_msg                    = LL_mailer::_ . '_msg';
-  const option_sender_name            = LL_mailer::_ . '_sender_name';
-  const option_sender_mail            = LL_mailer::_ . '_sender_mail';
-  const option_subscriber_attributes  = LL_mailer::_ . '_subscriber_attributes';
+  const option_msg                          = LL_mailer::_ . '_msg';
+  const option_sender_name                  = LL_mailer::_ . '_sender_name';
+  const option_sender_mail                  = LL_mailer::_ . '_sender_mail';
+  const option_subscriber_attributes        = LL_mailer::_ . '_subscriber_attributes';
+  const option_subscribe_page               = LL_mailer::_ . '_subscribe_page';
+  const option_confirmation_sent_page       = LL_mailer::_ . '_confirmation_sent_page';
+  const option_confirmed_page               = LL_mailer::_ . '_confirmed_page';
+  const option_welcome_msg                  = LL_mailer::_ . '_welcome_msg';
   
-  const subscriber_attribute_mail     = 'mail';
-  const subscriber_attribute_name     = 'name';
+  const subscriber_attribute_mail           = 'mail';
+  const subscriber_attribute_name           = 'name';
+  const subscriber_attribute_subscribed_at  = 'subscribed_at';
   
-  const table_templates               = LL_mailer::_ . '_templates';
-  const table_messages                = LL_mailer::_ . '_messages';
-  const table_subscribers             = LL_mailer::_ . '_subscribers';
+  const table_templates                     = LL_mailer::_ . '_templates';
+  const table_messages                      = LL_mailer::_ . '_messages';
+  const table_subscribers                   = LL_mailer::_ . '_subscribers';
   
-  const admin_page_settings           = LL_mailer::_ . '_settings';
-  const admin_page_templates          = LL_mailer::_ . '_templates';
-  const admin_page_template_edit      = LL_mailer::_ . '_templates&edit=';
-  const admin_page_messages           = LL_mailer::_ . '_messages';
-  const admin_page_message_edit       = LL_mailer::_ . '_messages&edit=';
-  const admin_page_subscribers        = LL_mailer::_ . 'subscribers';
-  const admin_page_subscriber_edit    = LL_mailer::_ . 'subscribers&edit=';
+  const admin_page_settings                 = LL_mailer::_ . '_settings';
+  const admin_page_templates                = LL_mailer::_ . '_templates';
+  const admin_page_template_edit            = LL_mailer::_ . '_templates&edit=';
+  const admin_page_messages                 = LL_mailer::_ . '_messages';
+  const admin_page_message_edit             = LL_mailer::_ . '_messages&edit=';
+  const admin_page_subscribers              = LL_mailer::_ . 'subscribers';
+  const admin_page_subscriber_edit          = LL_mailer::_ . 'subscribers&edit=';
   
-  const token_CONTENT                 = '[CONTENT]';
-  const token_SUBSCRIBER              = array('pattern' => '/\[SUBSCRIBER "([^"]+)" "([^"]+)" "([^"]+)" "([^"]+)"\]/',
-                                              'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]');
+  const token_CONTENT                       = array('pattern' => '[CONTENT]',
+                                                    'html'    => '[CONTENT]');
+  const token_CONFIRMATION_URL              = array('pattern' => '[CONFIRMATION_URL]',
+                                                    'html'    => '[CONFIRMATION_URL]');
+  const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]+)" "([^"]+)" "([^"]+)" "([^"]+)"\]/',
+                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]');
+                                              
+  const shortcode_SUBSCRIPTION_FORM         = array('code'    => 'LL_mailer_SUBSCRIPTION_FORM',
+                                                    'html'    => '[LL_mailer_SUBSCRIPTION_FORM form_attr=""&nbsp;row_attr=""&nbsp;label_attr=""&nbsp;input_attr=""]');
+  const shortcode_SUBSCRIBER_ATTRIBUTE      = array('code'    => 'LL_mailer_SUBSCRIBER',
+                                                    'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]');
   
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
@@ -122,11 +135,14 @@ class LL_mailer
     return $keys;
   }
   
-  static function escape_values($array)
+  static function escape_values($values)
   {
-    return array_map(function($val) {
-      return (!is_null($val)) ? '"' . $val . '"' : 'NULL';
-    }, $array);
+    if (is_array($values)) {
+      return array_map(function($val) {
+        return (!is_null($val)) ? '"' . $val . '"' : 'NULL';
+      }, $values);
+    }
+    return '"' . $values . '"';
   }
   
   static function _db_build_select($table, $what, $where)
@@ -178,6 +194,13 @@ class LL_mailer
     return $wpdb->get_row(LL_mailer::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A);
   }
   
+  
+  
+  static function db_check_post_exists($slug) {
+    global $wpdb;
+    return (int) $wpdb->get_var('SELECT ID FROM ' . $wpdb->posts . ' WHERE post_name = ' . LL_mailer::escape_values($slug) . ';');
+  }
+  
   // templates
   // - slug
   // - body_html
@@ -206,6 +229,7 @@ class LL_mailer
   // - subscribed_at
   // [...]
   static function db_save_subscriber($subscriber) { return LL_mailer::_db_insert_or_update(LL_mailer::table_subscribers, $subscriber, LL_mailer::subscriber_attribute_mail); }
+  static function db_confirm_subscriber($mail) { return LL_mailer::_db_insert_or_update(LL_mailer::table_subscribers, array(LL_mailer::subscriber_attribute_mail => $mail), LL_mailer::subscriber_attribute_mail, LL_mailer::subscriber_attribute_subscribed_at); }
   static function db_delete_subscriber($mail) { return LL_mailer::_db_delete(LL_mailer::table_subscribers, array(LL_mailer::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return LL_mailer::_db_select_row(LL_mailer::table_subscribers, '*', array(LL_mailer::subscriber_attribute_mail => $mail)); }
   static function db_get_subscribers($what) { return LL_mailer::_db_select(LL_mailer::table_subscribers, $what); }
@@ -261,7 +285,7 @@ class LL_mailer
       CREATE TABLE ' . LL_mailer::escape_keys($wpdb->prefix . LL_mailer::table_subscribers) . ' (
         `' . LL_mailer::subscriber_attribute_mail . '` varchar(100) NOT NULL,
         `' . LL_mailer::subscriber_attribute_name . '` TEXT NULL DEFAULT NULL,
-        `subscribed_at` datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        `' . LL_mailer::subscriber_attribute_subscribed_at . '` datetime NULL DEFAULT NULL,
         PRIMARY KEY (`' . LL_mailer::subscriber_attribute_mail . '`)
       ) ' . $wpdb->get_charset_collate() . ';');
     
@@ -289,6 +313,9 @@ class LL_mailer
     delete_option(LL_mailer::option_sender_name);
     delete_option(LL_mailer::option_sender_mail);
     delete_option(LL_mailer::option_subscriber_attributes);
+    delete_option(LL_mailer::option_subscribe_page);
+    delete_option(LL_mailer::option_confirmation_sent_page);
+    delete_option(LL_mailer::option_confirmed_page);
   }
   
   
@@ -298,63 +325,71 @@ class LL_mailer
     if (isset($request['template'])) {
       return LL_mailer::db_get_template_by_slug($request['template']);
     }
+    else if (isset($request['post_exists'])) {
+      return LL_mailer::db_check_post_exists($request['post_exists']);
+    }
   }
   
-  static function testmail($request)
+  
+  
+  static function replace_token_SUBSCRIBER_ATTRIBUTE($text, &$to, &$attributes)
   {
-    if (isset($request['send'])) {
-      
-      if (isset($request['to'])) {
-        $to = LL_mailer::db_get_subscriber_by_mail($request['to']);
-        if (is_null($to)) return 'Empfänger nicht gefunden.';
+    preg_match_all(LL_mailer::token_SUBSCRIBER_ATTRIBUTE['pattern'], $text, $matches, PREG_SET_ORDER);
+    if (!empty($matches)) {
+      $FULL = 0;
+      $PREFIX = 1;
+      $ATTR = 2;
+      $SUFFIX = 3;
+      $ALTERNATIVE = 4;
+      foreach ($matches as &$match) {
+        $attr = $match[$ATTR];
+        if (in_array($attr, $attributes)) {
+          if (!empty($to[$attr]))
+            $replacement = $match[$PREFIX] . $to[$attr] . $match[$SUFFIX];
+          else
+            $replacement = $match[$ALTERNATIVE];
+          $text = str_replace($match[$FULL], $replacement, $text);
+        }
       }
-      else return 'Kein Empfänger angegeben.';
+    }
+    return $text;
+  }
+  
+  static function send_mail($to, $msg)
+  {
+    if (isset($to)) {
+        $to = LL_mailer::db_get_subscriber_by_mail($to);
+        if (is_null($to)) return __('Empfänger nicht gefunden.', 'LL_mailer');
+      }
+      else return __('Kein Empfänger angegeben.', 'LL_mailer');
       
-      if (isset($request['msg'])) {
-        $msg = LL_mailer::db_get_message_by_slug($request['msg']);
-        if (is_null($msg)) return 'Nachricht nicht gefunden.';
-        $body = $msg['body_html'];
+      if (isset($msg)) {
+        $msg = LL_mailer::db_get_message_by_slug($msg);
+        if (is_null($msg)) return __('Nachricht nicht gefunden.', 'LL_mailer');
+        $body_html = $msg['body_html'];
         $body_text = $msg['body_text'];
         
         if (!is_null($msg['template_slug'])) {
           $template = LL_mailer::db_get_template_by_slug($msg['template_slug']);
-          $body = str_replace(LL_mailer::token_CONTENT, $body, $template['body_html']);
-          $body_text = str_replace(LL_mailer::token_CONTENT, $body_text, $template['body_text']);
+          $body_html = str_replace(LL_mailer::token_CONTENT['pattern'], $body_html, $template['body_html']);
+          $body_text = str_replace(LL_mailer::token_CONTENT['pattern'], $body_text, $template['body_text']);
         }
       }
-      else return 'Keine Nachricht angegeben.';
+      else return __('Keine Nachricht angegeben.', 'LL_mailer');
       
       
+      $confirm_url = LL_mailer::json_url() . 'confirm_subscription?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
+      $body_html = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
+      $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
       
-      $STR = 0;
-      $POSITION = 1;
-      
-      preg_match_all(LL_mailer::token_SUBSCRIBER['pattern'], $body_text, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
-      if (!empty($matches)) {
-        $FULL = 0;
-        $PREFIX = 1;
-        $ATTR = 2;
-        $SUFFIX = 3;
-        $ALTERNATIVE = 4;
-        $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
-        foreach ($matches as &$match) {
-          $attr = $match[$ATTR][$STR];
-          if (in_array($attr, $attributes)) {
-            if (!empty($to[$attr]))
-              $replacement = $match[$PREFIX][$STR] . $to[$attr] . $match[$SUFFIX][$STR];
-            else
-              $replacement = $match[$ALTERNATIVE][$STR];
-            $body_text = str_replace($match[$FULL][$STR], $replacement, $body_text);
-          }
-        }
-      }
-      return '<br />' . nl2br($body_text);
-      
+      $subscriber_attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
+      $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, $to, $subscriber_attributes);
+      $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, $to, $subscriber_attributes);
       
       
       require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
       $cssin = new FM\CSSIN();
-      $body = $cssin->inlineCSS('http://linda-liest.de/', $body);
+      $body_html = $cssin->inlineCSS(site_url(), $body_html);
       
       
       require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
@@ -371,17 +406,67 @@ class LL_mailer
 
         $mail->isHTML(true);
         $mail->Subject = utf8_decode($msg['subject']);
-        $mail->Body = utf8_decode($body);
+        $mail->Body = utf8_decode($body_html);
         $mail->AltBody = utf8_decode($body_text);
 
         $success = $mail->send();
-        return 'Nachricht gesendet.';
+        return false;
         
       } catch (PHPMailer\PHPMailer\Exception $e) {
-        return 'Nachricht nicht gesendet. Fehler: ' . $mail->ErrorInfo;
+        return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $mail->ErrorInfo;
+      }
+  }
+  
+  static function testmail($request)
+  {
+    if (isset($request['send'])) {
+      $error = LL_mailer::send_mail($request['to'], $request['msg']);
+      if ($error === false) {
+        return __('Testnachricht gesendet.', 'LL_mailer');
+      }
+      else {
+        return $error;
       }
     }
     return null;
+  }
+  
+  static function subscribe($request)
+  {
+    if (!empty($_POST) && isset($_POST[LL_mailer::subscriber_attribute_mail]) && !empty($_POST[LL_mailer::subscriber_attribute_mail])) {
+      $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+      $new_subscriber = array();
+      foreach ($attributes as $attr => $attr_label) {
+        $new_subscriber[$attr] = $_POST[$attr];
+      }
+      
+      LL_mailer::db_save_subscriber($new_subscriber);
+      $error = LL_mailer::send_mail($new_subscriber[LL_mailer::subscriber_attribute_mail], get_option(LL_mailer::option_welcome_msg));
+      if ($error === false) {
+        wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_confirmation_sent_page))) . '?subscriber=' . urlencode(base64_encode($new_subscriber[LL_mailer::subscriber_attribute_mail])));
+        exit;
+      }
+      else {
+        return $error;
+      }
+    }
+    wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_subscribe_page))));
+    exit;
+  }
+  
+  static function confirm_subscription($request)
+  {
+    if (isset($_GET['subscriber']) && !empty($_GET['subscriber'])) {
+      $subscriber_mail = base64_decode(urldecode($_GET['subscriber']));
+      $existing_subscriber = LL_mailer::db_get_subscriber_by_mail($subscriber_mail);
+      if (!is_null($existing_subscriber)) {
+        LL_mailer::db_confirm_subscriber($subscriber_mail);
+        wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_confirmed_page))) . '?subscriber=' . urlencode(base64_encode($subscriber_mail)));
+        exit;
+      }
+    }
+    wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_subscribe_page))));
+    exit;
   }
   
   static function post_status_transition($new_status, $old_status, $post)
@@ -414,6 +499,7 @@ class LL_mailer
   
   static function admin_page_settings()
   {
+    $valign = 'style="vertical-align: baseline;"';
 ?>
     <div class="wrap">
       <h1><?=__('Allgemeine Einstellungen', 'LL_mailer')?></h1>
@@ -424,13 +510,86 @@ class LL_mailer
           <tr>
             <th scope="row"><?=__('Absender', 'LL_mailer')?></th>
             <td>
-              <input type="text" name="<?=LL_mailer::option_sender_name?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_name))?>" placeholder="Name" class="regular-text"/>
+              <input type="text" name="<?=LL_mailer::option_sender_name?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_name))?>" placeholder="Name" class="regular-text" />
               <input type="text" name="<?=LL_mailer::option_sender_mail?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_mail))?>" placeholder="E-Mail" class="regular-text" />
+            </td>
+          </tr>
+          
+          <tr>
+            <th scope="row" style="padding-bottom: 0;"><?=__('Seiten', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=$valign?>><?=__('Dem Blog folgen', 'LL_mailer')?></td>
+            <td>
+              <input type="text" id="<?=LL_mailer::_?>_subscribe_page" name="<?=LL_mailer::option_subscribe_page?>" value="<?=esc_attr(get_option(LL_mailer::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
+              &nbsp; <i id="<?=LL_mailer::_?>_subscribe_page_response"></i>
+              <p>(<?=sprintf(__('Nutze <code>%s</code> um ein Formular auf dieser Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIPTION_FORM['html'])?>)</p>
+            </td>
+          </tr>
+          <tr>
+            <td <?=$valign?>><?=__('Bestätigungs-E-Mail gesendet', 'LL_mailer')?></td>
+            <td>
+              <input type="text" id="<?=LL_mailer::_?>_confirmation_sent_page" name="<?=LL_mailer::option_confirmation_sent_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmation_sent_page))?>" placeholder="Seite" class="regular-text" />
+              &nbsp; <i id="<?=LL_mailer::_?>_confirmation_sent_page_response"></i>
+            </td>
+          </tr>
+          <tr>
+            <td <?=$valign?>><?=__('E-Mail bestätigt', 'LL_mailer')?></td>
+            <td>
+              <input type="text" id="<?=LL_mailer::_?>_confirmed_page" name="<?=LL_mailer::option_confirmed_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmed_page))?>" placeholder="Seite" class="regular-text" />
+              &nbsp; <i id="<?=LL_mailer::_?>_confirmed_page_response"></i><br />
+              <p>(<?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?>)</p>
+            </td>
+          </tr>
+          
+          <tr>
+            <th scope="row" style="padding-bottom: 0;"><?=__('Nachrichten', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=$valign?>><?=__('Willkommen', 'LL_mailer')?></td>
+            <td>
+              <select name="<?=LL_mailer::option_welcome_msg?>">
+                <option value="">--</option>
+<?php
+              $messages = LL_mailer::db_get_messages(array('slug', 'subject'));
+              $selected_msg = get_option(LL_mailer::option_welcome_msg);
+              foreach ($messages as $msg) {
+?>
+                <option value="<?=$msg['slug']?>" <?=$msg['slug'] == $selected_msg ? 'selected' : ''?>><?=$msg['subject'] . ' (' . $msg['slug'] . ')'?></option>
+<?php
+              }
+?>
+              </select>
             </td>
           </tr>
         </table>
         <?php submit_button(); ?>
       </form>
+      <script>
+        new function() {
+          var timeout = null;
+          function check_page_exists(tag_id) {
+            var page_input = document.querySelector('#<?=LL_mailer::_?>' + tag_id);
+            var response_tag = document.querySelector('#<?=LL_mailer::_?>' + tag_id + '_response');
+            function check_now() {
+              if (timeout !== null) {
+                clearTimeout(timeout);
+              }
+              timeout = setTimeout(function() {
+                timeout = null;
+                jQuery.getJSON('<?=LL_mailer::json_url()?>get?post_exists=' + page_input.value, function(exists) {
+                  response_tag.innerHTML = !exists ? '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>' : '';
+                });
+              }, 1000);
+            }
+            jQuery(page_input).on('input', check_now);
+            check_now();
+          }
+          check_page_exists('_subscribe_page');
+          check_page_exists('_confirmation_sent_page');
+          check_page_exists('_confirmed_page');
+        }
+      </script>
       <hr />
       <table class="form-table">
         <tr>
@@ -450,8 +609,8 @@ class LL_mailer
                 padding-bottom: 0px;
               }
             </style>
-            <table class="LL_mailer_attributes_table">
-            <tr><td><?=__('Attribut')?></td><td><?=__('Platzhalter')?></td></tr>
+            <table class="<?=LL_mailer::_?>_attributes_table">
+            <tr><td><?=__('Attribut Label', 'LL_mailer')?></td><td><?=__('Attribut Slug', 'LL_mailer')?></td></tr>
 <?php
             foreach ($attribute_groups as $group => &$attrs) {
               foreach ($attrs as $attr => $attr_label) {
@@ -505,6 +664,10 @@ class LL_mailer
     // Save changed settings via WordPress
     register_setting(LL_mailer::_ . '_general', LL_mailer::option_sender_name);
     register_setting(LL_mailer::_ . '_general', LL_mailer::option_sender_mail);
+    register_setting(LL_mailer::_ . '_general', LL_mailer::option_subscribe_page);
+    register_setting(LL_mailer::_ . '_general', LL_mailer::option_confirmation_sent_page);
+    register_setting(LL_mailer::_ . '_general', LL_mailer::option_confirmed_page);
+    register_setting(LL_mailer::_ . '_general', LL_mailer::option_welcome_msg);
   }
   
   static function admin_page_settings_action()
@@ -658,7 +821,7 @@ class LL_mailer
             <tr>
               <td style="vertical-align: top;"><?php submit_button(__('Vorlage speichern', 'LL_mailer'), 'primary', '', false); ?></td>
               <td>
-                <?=__('Im Layout (HTML und Text) muss <code>[CONTENT]</code> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.', 'LL_mailer')?>
+                <?=sprintf(__('Im Layout (HTML und Text) muss <code>%s</code> an der Stelle verwendet werden, an der später die eigentliche Nachricht eingefügt werden soll.', 'LL_mailer'), LL_mailer::token_CONTENT['html'])?>
               </td>
             </tr>
           </table>
@@ -792,7 +955,9 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
           foreach ($messages as &$message) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; 
+            <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; 
+            <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
 <?php
           }
 ?>
@@ -821,8 +986,8 @@ class LL_mailer
           $template_body_html = $template['body_html'];
           $template_body_text = $template['body_text'];
           
-          $preview_body_html = str_replace(LL_mailer::token_CONTENT, $message['body_html'], $template_body_html);
-          $preview_body_text = str_replace(LL_mailer::token_CONTENT, $message['body_text'], $template_body_text);
+          $preview_body_html = str_replace(LL_mailer::token_CONTENT['pattern'], $message['body_html'], $template_body_html);
+          $preview_body_text = str_replace(LL_mailer::token_CONTENT['pattern'], $message['body_text'], $template_body_text);
         }
 ?>
         <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <?=$message_slug?></h1>
@@ -851,7 +1016,7 @@ class LL_mailer
                   }
 ?>
                 </select> &nbsp;
-                <a id="LL_mailer_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $message['template_slug']?>">(<?=__('Vorlage bearbeiten', 'LL_mailer')?>)</a>
+                <a id="<?=LL_mailer::_?>_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $message['template_slug']?>">(<?=__('Vorlage bearbeiten', 'LL_mailer')?>)</a>
               </td>
             </tr>
             <tr>
@@ -867,7 +1032,7 @@ class LL_mailer
                     LL_mailer::html_prefix . $preview_body_html . LL_mailer::html_suffix
                   )?>">
                 </iframe>
-                <div id="LL_mailer_template_body_html" style="display: none;"><?=$template_body_html?></div>
+                <div id="<?=LL_mailer::_?>_template_body_html" style="display: none;"><?=$template_body_html?></div>
               </td>
             </tr>
             <tr>
@@ -880,7 +1045,7 @@ class LL_mailer
               <th scope="row"><?=__('Vorschau (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
-                <div id="LL_mailer_template_body_text" style="display: none;"><?=$template_body_text?></div>
+                <div id="<?=LL_mailer::_?>_template_body_text" style="display: none;"><?=$template_body_text?></div>
               </td>
             </tr>
             <tr>
@@ -903,8 +1068,8 @@ class LL_mailer
                     padding-left: 20px;
                   }
                 </style>
-                <table class="LL_mailer_token_table">
-                  <tr><td colspan=2><?=__('Post-Benachrichtigungen:')?></td></tr>
+                <table class="<?=LL_mailer::_?>_token_table">
+                  <tr><td colspan=2><?=__('Post-Benachrichtigungen:', 'LL_mailer')?></td></tr>
                   <tr>
                     <td><?=LL_mailer::list_item?></td>
                     <td><code>[POST "<i>WP_POST_ATTRIBUTE</i>"]</code></td>
@@ -914,14 +1079,14 @@ class LL_mailer
                     <td><code>[META "<i>POST_META</i>"]</code></td>
                     <td><?=__('Individuelle Post-Metadaten, zB. von Plugins', 'LL_mailer')?> <a href="https://codex.wordpress.org/Custom_Fields" target="_blank">(?)</a></td>
                   </tr>
-                  <tr><td colspan=2><?=__('Willkommen-Email:')?></td></tr>
+                  <tr><td colspan=2><?=__('Willkommen-E-Mail:', 'LL_mailer')?></td></tr>
                   <tr>
                     <td><?=LL_mailer::list_item?></td>
-                    <td><code><?=LL_mailer::token_SUBSCRIBER['html']?></code></td>
+                    <td><code><?=LL_mailer::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
                     <td><?=__('Abonnenten-Attribut. Prefix & Suffix werden vor & nach dem Attribut angezeigt, wenn es für den Abonnenten nicht leer ist.', 'LL_mailer')?></td>
                   </tr><tr>
                     <td><?=LL_mailer::list_item?></td>
-                    <td><code>[CONFIRMATIONURL]</code></td>
+                    <td><code><?=LL_mailer::token_CONFIRMATION_URL['html']?></code></td>
                     <td><?=__('URL für Bestätigungs-Link.', 'LL_mailer')?></td>
                   </tr>
                 </table>
@@ -940,10 +1105,10 @@ class LL_mailer
           var preview_text = document.querySelector('#body_text_preview');
           var show_hide = [template_select, textarea_html, textarea_text];
           function updatePreviewHtml(preview, template_body_div, textarea) {
-            preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT?>', textarea.value);
+            preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value);
           }
           function updatePreviewText(preview, template_body_div, textarea) {
-            preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT?>', textarea.value);
+            preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value);
           }
           jQuery(textarea_html).on('input', function() { updatePreviewHtml(preview_html, template_body_html_div, textarea_html); });
           jQuery(textarea_text).on('input', function() { updatePreviewText(preview_text, template_body_text_div, textarea_text); });
@@ -951,8 +1116,8 @@ class LL_mailer
             if (template_select.value === '') {
               template_edit_link.href = '';
               template_edit_link.style.display = 'none';
-              template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT?>';
-              template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT?>';
+              template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
+              template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
               updatePreviewHtml(preview_html, template_body_html_div, textarea_html);
               updatePreviewText(preview_text, template_body_text_div, textarea_text);
             }
@@ -998,7 +1163,7 @@ class LL_mailer
 <?php
         } else {
 ?>
-          <form id="LL_mailer_testmail" method="post" action="<?=LL_mailer::json_url() . 'testmail'?>">
+          <form id="<?=LL_mailer::_?>_testmail" method="post" action="<?=LL_mailer::json_url()?>testmail">
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
             <select id="to" name="to">
 <?php
@@ -1124,7 +1289,12 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
           foreach ($subscribers as &$subscriber) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber[LL_mailer::subscriber_attribute_mail]?>"><b><?=($subscriber[LL_mailer::subscriber_attribute_name] ?? '</b><i>(' . __('kein Name') . ')</i><b>') . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></b></a> &nbsp; <span style="color: gray;">( <?=__('abonniert am: ', 'LL_mailer') . $subscriber['subscribed_at']?> )</span><br />
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber[LL_mailer::subscriber_attribute_mail]?>">
+              <b><?=($subscriber[LL_mailer::subscriber_attribute_name] ?? '</b><i>(' . __('kein Name', 'LL_mailer') . ')</i><b>') . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></b>
+            </a>
+            &nbsp;
+            <span style="color: gray;">( <?=!empty($subscriber['subscribed_at']) ? __('abonniert am: ', 'LL_mailer') . $subscriber['subscribed_at'] : __('unbestätigt', 'LL_mailer')?> )</span>
+            <br />
 <?php
           }
 ?>
@@ -1153,15 +1323,21 @@ class LL_mailer
             $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
             foreach ($attributes as $attr => $attr_label) {
 ?>
-              <tr>
-                <th scope="row"><?=$attr_label?></th>
-                <td>
-                  <input type="text" name="<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
-                </td>
-              </tr>
+            <tr>
+              <th scope="row"><?=$attr_label?></th>
+              <td>
+                <input type="text" name="<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
+              </td>
+            </tr>
 <?php
             }
 ?>
+            <tr>
+              <th scope="row"><?=__('Abonniert am', 'LL_mailer')?></th>
+              <td>
+                <?=$subscriber[LL_mailer::subscriber_attribute_subscribed_at] ?: ('<i>(' . __('unbestätigt', 'LL_mailer') . ')</i>')?>
+              </td>
+            </tr>
           </table>
           <?php submit_button(__('Abonnent speichern', 'LL_mailer')); ?>
         </form>
@@ -1242,20 +1418,64 @@ class LL_mailer
   
   
   
+  static function shortcode_SUBSCRIPTION_FORM($atts)
+  {
+    $attributes = LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes);
+    ob_start();
+?>
+    <form action="<?=LL_mailer::json_url()?>subscribe" method="post" <?=$atts['form_attr'] ?: ''?>>
+<?php
+    foreach ($attributes as $attr => $attr_label) {
+?>
+      <p <?=$atts['row_attr'] ?: ''?>>
+        <span <?=$atts['label_attr'] ?: ''?>><?=$attr_label?>:</span>
+        <input type="text" name="<?=$attr?>" <?=$atts['input_attr'] ?: ''?> />
+      </p>
+<?php
+    }
+?>
+      <input type="submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" class="Button" />
+    </form>
+<?php
+    return ob_get_clean();
+  }
+  
+  static function shortcode_SUBSCRIBER_ATTRIBUTE($atts)
+  {
+    if (!empty($atts) && isset($_GET['subscriber']) && !empty($_GET['subscriber'])) {
+      $subscriber_mail = base64_decode(urldecode($_GET['subscriber']));
+      
+      $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
+      if (in_array($atts[0], $attributes)) {
+        
+        $subscriber = LL_mailer::db_get_subscriber_by_mail($subscriber_mail);
+        if (!is_null($subscriber)) {
+          
+          return $subscriber[$atts[0]];
+        }
+      }
+    }
+    return '';
+  }
+
+  
   
   
   
   
  
 
-  static function init_hooks_and_filters() {
-    
+  static function init_hooks_and_filters()
+  {
     add_action('admin_menu', LL_mailer::_('admin_menu'));
     add_action('admin_post_' . LL_mailer::_ . '_settings_action', LL_mailer::_('admin_page_settings_action'));
     add_action('admin_post_' . LL_mailer::_ . '_template_action', LL_mailer::_('admin_page_template_action'));
     add_action('admin_post_' . LL_mailer::_ . '_message_action', LL_mailer::_('admin_page_message_action'));
     add_action('admin_post_' . LL_mailer::_ . '_subscriber_action', LL_mailer::_('admin_page_subscriber_action'));
     
+    
+    add_shortcode(LL_mailer::shortcode_SUBSCRIPTION_FORM['code'], LL_mailer::_('shortcode_SUBSCRIPTION_FORM'));
+    add_shortcode(LL_mailer::shortcode_SUBSCRIBER_ATTRIBUTE['code'], LL_mailer::_('shortcode_SUBSCRIBER_ATTRIBUTE'));
     
     
     add_action('admin_notices', LL_mailer::_('admin_notices'));
@@ -1267,13 +1487,18 @@ class LL_mailer
 
     add_action('rest_api_init', function ()
     {
-      register_rest_route('LL_mailer/v1', '/get', array(
-        'methods' => 'GET',
+      register_rest_route('LL_mailer/v1', 'get', array(
         'callback' => LL_mailer::_('json_get')
       ));
-      register_rest_route('LL_mailer/v1', '/testmail', array(
-        'methods' => 'GET',
+      register_rest_route('LL_mailer/v1', 'testmail', array(
         'callback' => LL_mailer::_('testmail')
+      ));
+      register_rest_route('LL_mailer/v1', 'subscribe', array(
+        'callback' => LL_mailer::_('subscribe'),
+        'methods' => 'POST'
+      ));
+      register_rest_route('LL_mailer/v1', 'confirm_subscription', array(
+        'callback' => LL_mailer::_('confirm_subscription')
       ));
     });
   }
