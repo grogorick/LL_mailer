@@ -25,7 +25,7 @@ class LL_mailer
   const option_subscribe_page               = LL_mailer::_ . '_subscribe_page';
   const option_confirmation_sent_page       = LL_mailer::_ . '_confirmation_sent_page';
   const option_confirmed_page               = LL_mailer::_ . '_confirmed_page';
-  const option_welcome_msg                  = LL_mailer::_ . '_welcome_msg';
+  const option_confirmation_msg             = LL_mailer::_ . '_confirmation_msg';
   
   const subscriber_attribute_mail           = 'mail';
   const subscriber_attribute_name           = 'name';
@@ -441,7 +441,7 @@ class LL_mailer
       }
       
       LL_mailer::db_save_subscriber($new_subscriber);
-      $error = LL_mailer::send_mail($new_subscriber[LL_mailer::subscriber_attribute_mail], get_option(LL_mailer::option_welcome_msg));
+      $error = LL_mailer::send_mail($new_subscriber[LL_mailer::subscriber_attribute_mail], get_option(LL_mailer::option_confirmation_msg));
       if ($error === false) {
         wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_confirmation_sent_page))) . '?subscriber=' . urlencode(base64_encode($new_subscriber[LL_mailer::subscriber_attribute_mail])));
         exit;
@@ -546,13 +546,13 @@ class LL_mailer
             <th scope="row" style="padding-bottom: 0;"><?=__('Nachrichten', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=$valign?>><?=__('Willkommen', 'LL_mailer')?></td>
+            <td <?=$valign?>><?=__('Bestätigungs-E-Mail', 'LL_mailer')?></td>
             <td>
-              <select name="<?=LL_mailer::option_welcome_msg?>">
+              <select name="<?=LL_mailer::option_confirmation_msg?>">
                 <option value="">--</option>
 <?php
               $messages = LL_mailer::db_get_messages(array('slug', 'subject'));
-              $selected_msg = get_option(LL_mailer::option_welcome_msg);
+              $selected_msg = get_option(LL_mailer::option_confirmation_msg);
               foreach ($messages as $msg) {
 ?>
                 <option value="<?=$msg['slug']?>" <?=$msg['slug'] == $selected_msg ? 'selected' : ''?>><?=$msg['subject'] . ' (' . $msg['slug'] . ')'?></option>
@@ -667,7 +667,7 @@ class LL_mailer
     register_setting(LL_mailer::_ . '_general', LL_mailer::option_subscribe_page);
     register_setting(LL_mailer::_ . '_general', LL_mailer::option_confirmation_sent_page);
     register_setting(LL_mailer::_ . '_general', LL_mailer::option_confirmed_page);
-    register_setting(LL_mailer::_ . '_general', LL_mailer::option_welcome_msg);
+    register_setting(LL_mailer::_ . '_general', LL_mailer::option_confirmation_msg);
   }
   
   static function admin_page_settings_action()
@@ -800,7 +800,7 @@ class LL_mailer
             <tr>
               <th scope="row"><?=__('Layout (HTML)', 'LL_mailer')?></th>
               <td>
-                <textarea name="body_html" style="width: 100%;" rows=10><?=$template['body_html']?></textarea>
+                <textarea name="body_html" style="width: 100%;" rows=10 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><?=$template['body_html']?></textarea>
               </td>
             </tr>
             <tr>
@@ -815,7 +815,7 @@ class LL_mailer
             <tr>
               <th scope="row"><?=__('Layout (Text)', 'LL_mailer')?></th>
               <td>
-                <textarea name="body_text" style="width: 100%;" rows=10><?=$template['body_text']?></textarea>
+                <textarea name="body_text" style="width: 100%;" rows=10 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><?=$template['body_text']?></textarea>
               </td>
             </tr>
             <tr>
@@ -955,7 +955,7 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
           foreach ($messages as &$message) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $message['slug']?>"><b><?=$message['slug']?></b></a> &nbsp; 
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . urlencode($message['slug'])?>"><b><?=$message['slug']?></b></a> &nbsp; 
             <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; 
             <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
 <?php
@@ -1016,13 +1016,13 @@ class LL_mailer
                   }
 ?>
                 </select> &nbsp;
-                <a id="<?=LL_mailer::_?>_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . $message['template_slug']?>">(<?=__('Vorlage bearbeiten', 'LL_mailer')?>)</a>
+                <a id="<?=LL_mailer::_?>_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . urlencode($message['template_slug'])?>">(<?=__('zur Vorlage', 'LL_mailer')?>)</a>
               </td>
             </tr>
             <tr>
               <th scope="row"><?=__('Inhalt (HTML)', 'LL_mailer')?></th>
               <td>
-                <textarea name="body_html" style="width: 100%;" rows=10><?=$message['body_html']?></textarea>
+                <textarea name="body_html" style="width: 100%;" rows=10 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><?=$message['body_html']?></textarea>
               </td>
             </tr>
             <tr>
@@ -1038,7 +1038,7 @@ class LL_mailer
             <tr>
               <th scope="row"><?=__('Inhalt (Text)', 'LL_mailer')?></th>
               <td>
-                <textarea name="body_text" style="width: 100%;" rows=10><?=$message['body_text']?></textarea>
+                <textarea name="body_text" style="width: 100%;" rows=10 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><?=$message['body_text']?></textarea>
               </td>
             </tr>
             <tr>
@@ -1126,7 +1126,7 @@ class LL_mailer
                 show_hide[i].disabled = true;
               
               jQuery.getJSON('<?=LL_mailer::json_url()?>get?template=' + template_select.value, function(new_template) {
-                template_edit_link.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit?>' + new_template.slug;
+                template_edit_link.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit?>' + encodeURI(new_template.slug);
                 template_edit_link.style.display = 'inline';
                 template_body_html_div.innerHTML = new_template.body_html;
                 template_body_text_div.innerHTML = new_template.body_text;
@@ -1144,12 +1144,23 @@ class LL_mailer
         
         <h1><?=__('Löschen', 'LL_mailer')?></h1>
         
+<?php
+        if ($message_slug == get_option(LL_mailer::option_confirmation_msg)) {
+?>
+          <i><?=__('Diese Nachricht kann nicht gelöscht werden, da sie für die Bestätigungs-E-Mail verwendet wird.', 'LL_mailer')?></i>
+<?php
+        }
+        else {
+?>
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
           <?php wp_nonce_field(LL_mailer::_ . '_message_delete'); ?>
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
           <?php submit_button(__('Nachricht löschen', 'LL_mailer'), ''); ?>
         </form>
+<?php
+        }
+?>
         
         <hr />
         
@@ -1181,7 +1192,11 @@ class LL_mailer
             var to_select = document.querySelector('#LL_mailer_testmail #to');
             var response_tag = document.querySelector('#LL_mailer_testmail #response');
             jQuery('#LL_mailer_testmail').submit(function(e) {
+              var btn = this.querySelector('input[type="submit"]');
+              btn.disabled = true;
+              response_tag.innerHTML = '...';
               jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + to_select.value, function(response) {
+                btn.disabled = false;
                 response_tag.innerHTML = response;
               });
               e.preventDefault();
@@ -1289,7 +1304,7 @@ class LL_mailer
           $edit_url = LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit;
           foreach ($subscribers as &$subscriber) {
 ?>
-            <?=LL_mailer::list_item?> <a href="<?=$edit_url . $subscriber[LL_mailer::subscriber_attribute_mail]?>">
+            <?=LL_mailer::list_item?> <a href="<?=$edit_url . urlencode($subscriber[LL_mailer::subscriber_attribute_mail])?>">
               <b><?=($subscriber[LL_mailer::subscriber_attribute_name] ?? '</b><i>(' . __('kein Name', 'LL_mailer') . ')</i><b>') . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></b>
             </a>
             &nbsp;
@@ -1383,7 +1398,7 @@ class LL_mailer
           LL_mailer::db_save_subscriber(array(LL_mailer::subscriber_attribute_mail => $subscriber_mail));
           
           LL_mailer::message(sprintf(__('Neuer Abonnent <b>%s</b> angelegt.', 'LL_mailer'), $subscriber_mail));
-          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $subscriber_mail);
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . urlencode($subscriber_mail));
           exit;
         }
         
@@ -1398,8 +1413,8 @@ class LL_mailer
           
           LL_mailer::db_save_subscriber($subscriber);
           
-          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $subscriber_mail));
-          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . $subscriber_mail);
+          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $subscriber[LL_mailer::subscriber_attribute_mail]));
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . urlencode($subscriber[LL_mailer::subscriber_attribute_mail]));
           exit;
         }
         
