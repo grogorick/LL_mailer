@@ -628,7 +628,6 @@ class LL_mailer
             var link_tag = document.querySelector('#' + tag_id + '_link');
             function link_now() {
               link_tag.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_message_edit?>' + encodeURI(message_select.value);
-              link_tag.style.display = 'inline';
             }
             jQuery(message_select).on('input', link_now);
             link_now();
@@ -1249,7 +1248,7 @@ class LL_mailer
               var btn = this.querySelector('input[type="submit"]');
               btn.disabled = true;
               response_tag.innerHTML = '...';
-              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + to_select.value, function(response) {
+              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(to_select.value), function(response) {
                 btn.disabled = false;
                 response_tag.innerHTML = response;
               });
