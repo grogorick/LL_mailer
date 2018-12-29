@@ -605,16 +605,18 @@ class LL_mailer
       </form>
       <script>
         new function() {
-          var timeout = null;
+          var timeout = {};
           function check_page_exists(tag_id) {
             var page_input = document.querySelector('#<?=LL_mailer::_?>' + tag_id);
             var response_tag = document.querySelector('#<?=LL_mailer::_?>' + tag_id + '_response');
+            timeout[tag_id] = null;
             function check_now() {
-              if (timeout !== null) {
-                clearTimeout(timeout);
+              response_tag.innerHTML = '...';
+              if (timeout[tag_id] !== null) {
+                clearTimeout(timeout[tag_id]);
               }
-              timeout = setTimeout(function() {
-                timeout = null;
+              timeout[tag_id] = setTimeout(function() {
+                timeout[tag_id] = null;
                 jQuery.getJSON('<?=LL_mailer::json_url()?>get?post_exists=' + page_input.value, function(exists) {
                   response_tag.innerHTML = !exists ? '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>' : '';
                 });
