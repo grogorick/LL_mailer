@@ -47,10 +47,15 @@ class LL_mailer
                                                     'html'    => '[CONTENT]');
   const token_CONFIRMATION_URL              = array('pattern' => '[CONFIRMATION_URL]',
                                                     'html'    => '[CONFIRMATION_URL]');
-  const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]+)" "([^"]+)" "([^"]+)" "([^"]+)"\]/',
-                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]');
+  const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]*)" "([^"]+)" "([^"]*)" "([^"]*)"\]/',
+                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]',
+                                                    'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute');
   const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST "([^"]+)"\]/',
-                                                    'html'    => '[POST "<i>Attribut</i>"]');
+                                                    'html'    => '[POST "<i>Attribut</i>"]',
+                                                    'filter'  => LL_mailer::_ . '_POST_attribute');
+  const token_POST_META                     = array('pattern' => '/\[POST_META "([^"]+)"\]/',
+                                                    'html'    => '[POST_META "<i>Attribut</i>"]',
+                                                    'filter'  => LL_mailer::_ . '_POST_META_attribute');
                                               
   const shortcode_SUBSCRIPTION_FORM         = array('code'    => 'LL_mailer_SUBSCRIPTION_FORM',
                                                     'html'    => '[LL_mailer_SUBSCRIPTION_FORM form_attr=""&nbsp;row_attr=""&nbsp;label_attr=""&nbsp;input_attr=""]');
@@ -383,6 +388,7 @@ class LL_mailer
             $replacement = $match[$PREFIX] . $to[$attr] . $match[$SUFFIX];
           else
             $replacement = $match[$ALTERNATIVE];
+          $replacement = apply_filters(LL_mailer::token_SUBSCRIBER_ATTRIBUTE['filter'], $replacement, $attr, $to);
           $text = str_replace($match[$FULL], $replacement, $text);
         }
       }
@@ -401,15 +407,32 @@ class LL_mailer
 
         if (array_key_exists($attr, $post_a)) {
           $replacement = $post_a[$attr];
-
-          switch ($attr) {
-            case 'post_title': $replacement = apply_filters('the_title', $replacement, $post->ID); break;
-            case 'post_excerpt': $replacement = apply_filters('get_the_excerpt', $replacement, $post); break;
-            default:
-          }
+          $replacement = apply_filters(LL_mailer::token_POST_ATTRIBUTE['filter'], $replacement, $attr, $post);
         }
         else {
-          $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler, "%s" ist kein WP_Post Attribut', 'LL_mailer'), $attr) . ')';
+          $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler! "<i>%s</i>" ist kein WP_Post Attribut', 'LL_mailer'), $attr) . ')';
+        }
+        $text = str_replace($match[$FULL], $replacement, $text);
+      }
+    }
+    return $text;
+  }
+
+  static function replace_token_POST_META($text, &$post)
+  {
+    preg_match_all(LL_mailer::token_POST_META['pattern'], $text, $matches, PREG_SET_ORDER);
+    if (!empty($matches)) {
+      $FULL = 0;
+      $ATTR = 1;
+      foreach ($matches as &$match) {
+        $attr = $match[$ATTR];
+
+        if (metadata_exists('post', $post->ID, $attr)) {
+          $replacement = get_post_meta($post->ID, $attr, true);
+          $replacement = apply_filters(LL_mailer::token_POST_META['filter'], $replacement, $attr, $post);
+        }
+        else {
+          $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler! "<i>%s</i>" ist kein Post-Meta-Attribut von dem Post "<i>%s</i>"', 'LL_mailer'), $attr, $post->ID) . ')';
         }
         $text = str_replace($match[$FULL], $replacement, $text);
       }
@@ -417,7 +440,7 @@ class LL_mailer
     return $text;
   }
   
-  static function send_mail($to, $msg, $post = null)
+  static function send_mail($to, $msg, $post_id = null)
   {
     if (isset($to)) {
       $to = LL_mailer::db_get_subscriber_by_mail($to);
@@ -449,12 +472,16 @@ class LL_mailer
     $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, $to, $subscriber_attributes);
 
 
-    if (!is_null($post)) {
+    if (!is_null($post_id)) {
+      $post = get_post($post_id);
       $post_a = get_post($post, ARRAY_A);
-      return LL_mailer::replace_token_POST_ATTRIBUTE($body_html, $post, $post_a);
 
       $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, $post, $post_a);
       $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, $post, $post_a);
+
+      $body_html = LL_mailer::replace_token_POST_META($body_html, $post);
+      $body_text = LL_mailer::replace_token_POST_META($body_text, $post);
+      return $body_html;
     }
     return 'Kein Test-Post angegeben';
 
@@ -1166,11 +1193,11 @@ class LL_mailer
                   <tr><td colspan=2><?=__('Post-Benachrichtigungen:', 'LL_mailer')?></td></tr>
                   <tr>
                     <td><?=LL_mailer::list_item?></td>
-                    <td><code>[POST "<i>WP_POST_ATTRIBUTE</i>"]</code></td>
+                    <td><code><?=LL_mailer::token_POST_ATTRIBUTE['html']?></code></td>
                     <td><?=__('WP_Post Attribute, zB. <i>post_title</i> und <i>post_excerpt</i>', 'LL_mailer')?> <a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">(?)</a></td>
                   </tr><tr>
                     <td><?=LL_mailer::list_item?></td>
-                    <td><code>[META "<i>POST_META</i>"]</code></td>
+                    <td><code><?=LL_mailer::token_POST_META['html']?></code></td>
                     <td><?=__('Individuelle Post-Metadaten, zB. von Plugins', 'LL_mailer')?> <a href="https://codex.wordpress.org/Custom_Fields" target="_blank">(?)</a></td>
                   </tr>
                   <tr><td colspan=2><?=__('Willkommen-E-Mail:', 'LL_mailer')?></td></tr>
