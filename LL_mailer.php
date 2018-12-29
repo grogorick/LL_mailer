@@ -50,8 +50,8 @@ class LL_mailer
   const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]*)" "([^"]+)" "([^"]*)" "([^"]*)"\]/',
                                                     'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]',
                                                     'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute');
-  const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST "([^"]+)"\]/',
-                                                    'html'    => '[POST "<i>Attribut</i>"]',
+  const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST "([^"]+)"( (fmt|alt)="([^"]*)")?( (fmt|alt)="([^"]*)")?\]/',
+                                                    'html'    => '[POST "<i>Attribut</i>" fmt="<i>Formatierung für Text <b>&percnt;s</b></i>" alt="<i>Alternativ-Text</i>"]',
                                                     'filter'  => LL_mailer::_ . '_POST_attribute');
   const token_POST_META                     = array('pattern' => '/\[POST_META "([^"]+)"\]/',
                                                     'html'    => '[POST_META "<i>Attribut</i>"]',
@@ -404,10 +404,18 @@ class LL_mailer
       $ATTR = 1;
       foreach ($matches as &$match) {
         $attr = $match[$ATTR];
+        foreach (array(3, 6) as $i) switch ($match[$i]) {
+          case 'fmt' : $fmt = $match[$i + 1]; break;
+          case 'alt' : $alt = $match[$i + 1]; break;
+        }
 
-        if (array_key_exists($attr, $post_a)) {
+        if (array_key_exists($attr, $post_a) && !empty($post_a[$attr])) {
           $replacement = $post_a[$attr];
+          if (isset($fmt)) $replacement = sprintf($fmt, $replacement);
           $replacement = apply_filters(LL_mailer::token_POST_ATTRIBUTE['filter'], $replacement, $attr, $post);
+        }
+        else if (isset($alt)) {
+          $replacement = $alt;
         }
         else {
           $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler! "<i>%s</i>" ist kein WP_Post Attribut', 'LL_mailer'), $attr) . ')';
