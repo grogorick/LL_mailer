@@ -44,23 +44,30 @@ class LL_mailer
   const admin_page_subscriber_edit          = LL_mailer::_ . 'subscribers&edit=';
   
   const token_CONTENT                       = array('pattern' => '[CONTENT]',
-                                                    'html'    => '[CONTENT]');
+                                                    'html'    => '[CONTENT]'
+                                                    );
   const token_CONFIRMATION_URL              = array('pattern' => '[CONFIRMATION_URL]',
-                                                    'html'    => '[CONFIRMATION_URL]');
+                                                    'html'    => '[CONFIRMATION_URL]'
+                                                    );
   const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]*)" "([^"]+)" "([^"]*)" "([^"]*)"\]/',
-                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternative</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute');
+                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternativ-Text</i>"]',
+                                                    'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute'
+                                                    );
   const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST "([^"]+)"( (fmt|alt)="([^"]*)")?( (fmt|alt)="([^"]*)")?\]/',
-                                                    'html'    => '[POST "<i>Attribut</i>" fmt="<i>Formatierung für Text <b>&percnt;s</b></i>" alt="<i>Alternativ-Text</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_POST_attribute');
+                                                    'html'    => '[POST "<i>Attribut</i>" fmt="<i>Formatierung ... <b>&percnt;s</b> ...</i>" alt="<i>Alternativ-Text</i>"]',
+                                                    'filter'  => LL_mailer::_ . '_POST_attribute'
+                                                    );
   const token_POST_META                     = array('pattern' => '/\[POST_META "([^"]+)"\]/',
                                                     'html'    => '[POST_META "<i>Attribut</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_POST_META_attribute');
+                                                    'filter'  => LL_mailer::_ . '_POST_META_attribute'
+                                                    );
                                               
   const shortcode_SUBSCRIPTION_FORM         = array('code'    => 'LL_mailer_SUBSCRIPTION_FORM',
-                                                    'html'    => '[LL_mailer_SUBSCRIPTION_FORM form_attr=""&nbsp;row_attr=""&nbsp;label_attr=""&nbsp;input_attr=""]');
+                                                    'html'    => '[LL_mailer_SUBSCRIPTION_FORM form_attr=""&nbsp;row_attr=""&nbsp;label_attr=""&nbsp;input_attr=""]'
+                                                    );
   const shortcode_SUBSCRIBER_ATTRIBUTE      = array('code'    => 'LL_mailer_SUBSCRIBER',
-                                                    'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]');
+                                                    'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]'
+                                                    );
   
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
@@ -233,7 +240,7 @@ class LL_mailer
   
   
   
-  static function db_check_post_exists($slug) {
+  static function db_find_post($slug) {
     global $wpdb;
     return (int) $wpdb->get_var('SELECT ID FROM ' . $wpdb->posts . LL_mailer::build_where(array('post_name' => $slug)) . ';');
   }
@@ -365,8 +372,12 @@ class LL_mailer
     if (isset($request['template'])) {
       return LL_mailer::db_get_template_by_slug($request['template']);
     }
-    else if (isset($request['post_exists'])) {
-      return LL_mailer::db_check_post_exists($request['post_exists']);
+    else if (isset($request['find_post'])) {
+      $id = LL_mailer::db_find_post($request['find_post']);
+      $url = $id ? admin_url('post.php?action=edit&post=' . $id) : null;
+      return array(
+        'id'  => $id,
+        'url' => $url);
     }
   }
   
@@ -418,7 +429,7 @@ class LL_mailer
           $replacement = $alt;
         }
         else {
-          $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler! "<i>%s</i>" ist kein WP_Post Attribut', 'LL_mailer'), $attr) . ')';
+          $replacement = '(' . sprintf(__('Fehler in %s: "%s" ist kein WP_Post Attribut', 'LL_mailer'), '<code>' . htmlentities($match[$FULL]) . '</code>', $attr) . ')';
         }
         $text = str_replace($match[$FULL], $replacement, $text);
       }
@@ -635,23 +646,23 @@ class LL_mailer
             <td <?=$valign?>><?=__('Dem Blog folgen', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_subscribe_page" name="<?=LL_mailer::option_subscribe_page?>" value="<?=esc_attr(get_option(LL_mailer::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
-              &nbsp; <i id="<?=LL_mailer::_?>_subscribe_page_response"></i>
-              <p>(<?=sprintf(__('Nutze <code>%s</code> um ein Formular auf dieser Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIPTION_FORM['html'])?>)</p>
+              &nbsp; <span id="<?=LL_mailer::_?>_subscribe_page_response"></span>
+              <p><i>(<?=sprintf(__('Nutze <code>%s</code> um ein Formular auf dieser Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIPTION_FORM['html'])?>)</i></p>
             </td>
           </tr>
           <tr>
             <td <?=$valign?>><?=__('Bestätigungs-E-Mail gesendet', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_confirmation_sent_page" name="<?=LL_mailer::option_confirmation_sent_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmation_sent_page))?>" placeholder="Seite" class="regular-text" />
-              &nbsp; <i id="<?=LL_mailer::_?>_confirmation_sent_page_response"></i>
+              &nbsp; <span id="<?=LL_mailer::_?>_confirmation_sent_page_response"></span>
             </td>
           </tr>
           <tr>
             <td <?=$valign?>><?=__('E-Mail bestätigt', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_confirmed_page" name="<?=LL_mailer::option_confirmed_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmed_page))?>" placeholder="Seite" class="regular-text" />
-              &nbsp; <i id="<?=LL_mailer::_?>_confirmed_page_response"></i><br />
-              <p>(<?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?>)</p>
+              &nbsp; <span id="<?=LL_mailer::_?>_confirmed_page_response"></span><br />
+              <p><i>(<?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?>)</i></p>
             </td>
           </tr>
           
@@ -694,8 +705,13 @@ class LL_mailer
               }
               timeout[tag_id] = setTimeout(function() {
                 timeout[tag_id] = null;
-                jQuery.getJSON('<?=LL_mailer::json_url()?>get?post_exists=' + page_input.value, function(exists) {
-                  response_tag.innerHTML = !exists ? '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>' : '';
+                jQuery.getJSON('<?=LL_mailer::json_url()?>get?find_post=' + page_input.value, function(post) {
+                  if (post.id > 0) {
+                    response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
+                  }
+                  else {
+                    response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
+                  }
                 });
               }, 1000);
             }
