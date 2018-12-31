@@ -42,24 +42,33 @@ class LL_mailer
   const admin_page_message_edit             = LL_mailer::_ . '_messages&edit=';
   const admin_page_subscribers              = LL_mailer::_ . 'subscribers';
   const admin_page_subscriber_edit          = LL_mailer::_ . 'subscribers&edit=';
-  
+
+  const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt|alt)="([^"]*)")?(\s+(fmt|alt)="([^"]*)")?';
+  const attr_fmt_alt_html                   = ' "<i>Attribut</i>" fmt="&percnt;s" alt=""';
+
   const token_CONTENT                       = array('pattern' => '[CONTENT]',
                                                     'html'    => '[CONTENT]'
                                                     );
   const token_CONFIRMATION_URL              = array('pattern' => '[CONFIRMATION_URL]',
                                                     'html'    => '[CONFIRMATION_URL]'
                                                     );
-  const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER "([^"]*)" "([^"]+)" "([^"]*)" "([^"]*)"\]/',
-                                                    'html'    => '[SUBSCRIBER "<i>Prefix</i>"&nbsp;"<i>Attribut&nbsp;Slug</i>"&nbsp;"<i>Suffix</i>"&nbsp;"<i>Alternativ-Text</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute'
+  const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER' . LL_mailer::attr_fmt_alt . '\]/',
+                                                    'html'    => '[SUBSCRIBER' . LL_mailer::attr_fmt_alt_html . ']',
+                                                    'filter'  => LL_mailer::_ . '_SUBSCRIBER_attribute',
+                                                    'example' => array('[SUBSCRIBER "mail"]',
+                                                                       '[SUBSCRIBER "name" fmt="Hallo %s, willkommen" alt="Willkommen"]')
                                                     );
-  const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST "([^"]+)"( (fmt|alt)="([^"]*)")?( (fmt|alt)="([^"]*)")?\]/',
-                                                    'html'    => '[POST "<i>Attribut</i>" fmt="<i>Formatierung ... <b>&percnt;s</b> ...</i>" alt="<i>Alternativ-Text</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_POST_attribute'
+  const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST' . LL_mailer::attr_fmt_alt . '\]/',
+                                                    'html'    => '[POST' . LL_mailer::attr_fmt_alt_html . ']',
+                                                    'filter'  => LL_mailer::_ . '_POST_attribute',
+                                                    'example' => array('[POST "post_title"]',
+                                                                       '[POST "post_excerpt" alt="&lt;i&gt;Kein Auszug verfügbar&lt;/i&gt;"]')
                                                     );
-  const token_POST_META                     = array('pattern' => '/\[POST_META "([^"]+)"\]/',
-                                                    'html'    => '[POST_META "<i>Attribut</i>"]',
-                                                    'filter'  => LL_mailer::_ . '_POST_META_attribute'
+  const token_POST_META                     = array('pattern' => '/\[POST_META' . LL_mailer::attr_fmt_alt . ']/',
+                                                    'html'    => '[POST_META' . LL_mailer::attr_fmt_alt_html . ']',
+                                                    'filter'  => LL_mailer::_ . '_POST_META_attribute',
+                                                    'example' => array('[POST_META "plugin-post-meta-key"]',
+                                                                       '[POST_META "genre" fmt="Genre: %s&lt;br /&gt;" alt=""]')
                                                     );
                                               
   const shortcode_SUBSCRIPTION_FORM         = array('code'    => 'LL_mailer_SUBSCRIPTION_FORM',
@@ -380,36 +389,12 @@ class LL_mailer
         'url' => $url);
     }
   }
-  
-  
-  
-  static function replace_token_SUBSCRIBER_ATTRIBUTE($text, &$to, &$attributes)
-  {
-    preg_match_all(LL_mailer::token_SUBSCRIBER_ATTRIBUTE['pattern'], $text, $matches, PREG_SET_ORDER);
-    if (!empty($matches)) {
-      $FULL = 0;
-      $PREFIX = 1;
-      $ATTR = 2;
-      $SUFFIX = 3;
-      $ALTERNATIVE = 4;
-      foreach ($matches as &$match) {
-        $attr = $match[$ATTR];
-        if (in_array($attr, $attributes)) {
-          if (!empty($to[$attr]))
-            $replacement = $match[$PREFIX] . $to[$attr] . $match[$SUFFIX];
-          else
-            $replacement = $match[$ALTERNATIVE];
-          $replacement = apply_filters(LL_mailer::token_SUBSCRIBER_ATTRIBUTE['filter'], $replacement, $attr, $to);
-          $text = str_replace($match[$FULL], $replacement, $text);
-        }
-      }
-    }
-    return $text;
-  }
 
-  static function replace_token_POST_ATTRIBUTE($text, &$post, &$post_a)
+
+
+  static function replace_token_using_fmt_and_alt($text, $is_html, $token, &$post, callable $get_value_by_attr)
   {
-    preg_match_all(LL_mailer::token_POST_ATTRIBUTE['pattern'], $text, $matches, PREG_SET_ORDER);
+    preg_match_all($token['pattern'], $text, $matches, PREG_SET_ORDER);
     if (!empty($matches)) {
       $FULL = 0;
       $ATTR = 1;
@@ -420,16 +405,15 @@ class LL_mailer
           case 'alt' : $alt = $match[$i + 1]; break;
         }
 
-        if (array_key_exists($attr, $post_a) && !empty($post_a[$attr])) {
-          $replacement = $post_a[$attr];
-          if (isset($fmt)) $replacement = sprintf($fmt, $replacement);
-          $replacement = apply_filters(LL_mailer::token_POST_ATTRIBUTE['filter'], $replacement, $attr, $post);
-        }
-        else if (isset($alt)) {
+        [$replace_value, $error] = $get_value_by_attr($attr, $match[$FULL]);
+
+        if (!empty($replace_value)) {
+          $replace_value_fmt = isset($fmt) ? sprintf($fmt, $replace_value) : $replace_value;
+          $replacement = apply_filters($token['filter'], $replace_value_fmt, $replace_value, $fmt, $alt, $attr, $post, $is_html);
+        } else if (isset($alt)) {
           $replacement = $alt;
-        }
-        else {
-          $replacement = '(' . sprintf(__('Fehler in %s: "%s" ist kein WP_Post Attribut', 'LL_mailer'), '<code>' . htmlentities($match[$FULL]) . '</code>', $attr) . ')';
+        } else {
+          $replacement = $error;
         }
         $text = str_replace($match[$FULL], $replacement, $text);
       }
@@ -437,26 +421,45 @@ class LL_mailer
     return $text;
   }
 
-  static function replace_token_POST_META($text, &$post)
+  static function replace_token_SUBSCRIBER_ATTRIBUTE($text, $is_html, &$to, &$attributes)
   {
-    preg_match_all(LL_mailer::token_POST_META['pattern'], $text, $matches, PREG_SET_ORDER);
-    if (!empty($matches)) {
-      $FULL = 0;
-      $ATTR = 1;
-      foreach ($matches as &$match) {
-        $attr = $match[$ATTR];
+    return LL_mailer::replace_token_using_fmt_and_alt($text, $is_html, LL_mailer::token_SUBSCRIBER_ATTRIBUTE, $post,
+      function(&$attr, &$found_token) use($to, $attributes) {
+        if (in_array($attr, $attributes)) {
+          if (isset($to[$attr]) && !empty($to[$attr]))
+            return array($to[$attr], '');
+          else
+            return array('', '');
+        }
+        else
+          return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein Abonnenten Attribut', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr) . ')');
+      });
+  }
 
-        if (metadata_exists('post', $post->ID, $attr)) {
-          $replacement = get_post_meta($post->ID, $attr, true);
-          $replacement = apply_filters(LL_mailer::token_POST_META['filter'], $replacement, $attr, $post);
-        }
+  static function replace_token_POST_ATTRIBUTE($text, $is_html, &$post, &$post_a)
+  {
+    return LL_mailer::replace_token_using_fmt_and_alt($text, $is_html, LL_mailer::token_POST_ATTRIBUTE, $post,
+      function(&$attr, &$found_token) use($post, $post_a) {
+        if (array_key_exists($attr, $post_a) && !empty($post_a[$attr]))
+          return array($post_a[$attr], '');
         else {
-          $replacement = '(' . $match[$FULL] . ': ' . sprintf(__('Fehler! "<i>%s</i>" ist kein Post-Meta-Attribut von dem Post "<i>%s</i>"', 'LL_mailer'), $attr, $post->ID) . ')';
+          switch ($attr) {
+            case 'url': return array(get_post_permalink($post));
+            default: return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein WP_Post Attribut', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr) . ')');
+          }
         }
-        $text = str_replace($match[$FULL], $replacement, $text);
-      }
-    }
-    return $text;
+      });
+  }
+
+  static function replace_token_POST_META($text, $is_html, &$post)
+  {
+    return LL_mailer::replace_token_using_fmt_and_alt($text, $is_html, LL_mailer::token_POST_META, $post,
+      function(&$attr, &$found_token) use($post) {
+        if (metadata_exists('post', $post->ID, $attr))
+          return array(get_post_meta($post->ID, $attr, true), '');
+        else
+          return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein Post-Meta Attribut von Post "%s"', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr, $post->post_title) . ')');
+      });
   }
   
   static function send_mail($to, $msg, $post_id = null)
@@ -486,23 +489,22 @@ class LL_mailer
     $body_html = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
     $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
 
-    $subscriber_attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
-    $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, $to, $subscriber_attributes);
-    $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, $to, $subscriber_attributes);
+
+    $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
+    $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes);
+    $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes);
 
 
     if (!is_null($post_id)) {
       $post = get_post($post_id);
       $post_a = get_post($post, ARRAY_A);
 
-      $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, $post, $post_a);
-      $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, $post, $post_a);
+      $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, true, $post, $post_a);
+      $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, false, $post, $post_a);
 
-      $body_html = LL_mailer::replace_token_POST_META($body_html, $post);
-      $body_text = LL_mailer::replace_token_POST_META($body_text, $post);
-      return $body_html;
+      $body_html = LL_mailer::replace_token_POST_META($body_html, true, $post);
+      $body_text = LL_mailer::replace_token_POST_META($body_text, false, $post);
     }
-    return 'Kein Test-Post angegeben';
 
 
     require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
@@ -699,23 +701,24 @@ class LL_mailer
             var response_tag = document.querySelector('#<?=LL_mailer::_?>' + tag_id + '_response');
             timeout[tag_id] = null;
             function check_now() {
+              timeout[tag_id] = null;
+              jQuery.getJSON('<?=LL_mailer::json_url()?>get?find_post=' + page_input.value, function(post) {
+                if (post.id > 0) {
+                  response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
+                }
+                else {
+                  response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
+                }
+              });
+            }
+            function check_later() {
               response_tag.innerHTML = '...';
               if (timeout[tag_id] !== null) {
                 clearTimeout(timeout[tag_id]);
               }
-              timeout[tag_id] = setTimeout(function() {
-                timeout[tag_id] = null;
-                jQuery.getJSON('<?=LL_mailer::json_url()?>get?find_post=' + page_input.value, function(post) {
-                  if (post.id > 0) {
-                    response_tag.innerHTML = '(<a href="' + post.url + '"><?=__('Zur Seite')?></a>)';
-                  }
-                  else {
-                    response_tag.innerHTML = '<span style="color: red;"><?=__('Seite nicht gefunden', 'LL_mailer')?></span>';
-                  }
-                });
-              }, 1000);
+              timeout[tag_id] = setTimeout(check_now, 1000);
             }
-            jQuery(page_input).on('input', check_now);
+            jQuery(page_input).on('input', check_later);
             check_now();
           }
           function link_message(tag_id) {
@@ -1214,25 +1217,42 @@ class LL_mailer
                   }
                 </style>
                 <table class="<?=LL_mailer::_?>_token_table">
-                  <tr><td colspan=2><?=__('Post-Benachrichtigungen:', 'LL_mailer')?></td></tr>
-                  <tr>
-                    <td><?=LL_mailer::list_item?></td>
-                    <td><code><?=LL_mailer::token_POST_ATTRIBUTE['html']?></code></td>
-                    <td><?=__('WP_Post Attribute, zB. <i>post_title</i> und <i>post_excerpt</i>', 'LL_mailer')?> <a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">(?)</a></td>
-                  </tr><tr>
-                    <td><?=LL_mailer::list_item?></td>
-                    <td><code><?=LL_mailer::token_POST_META['html']?></code></td>
-                    <td><?=__('Individuelle Post-Metadaten, zB. von Plugins', 'LL_mailer')?> <a href="https://codex.wordpress.org/Custom_Fields" target="_blank">(?)</a></td>
-                  </tr>
-                  <tr><td colspan=2><?=__('Willkommen-E-Mail:', 'LL_mailer')?></td></tr>
+                  <tr><td colspan=2><?=__('In allen E-Mails:', 'LL_mailer')?></td></tr>
                   <tr>
                     <td><?=LL_mailer::list_item?></td>
                     <td><code><?=LL_mailer::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
-                    <td><?=__('Abonnenten-Attribut. Prefix & Suffix werden vor & nach dem Attribut angezeigt, wenn es für den Abonnenten nicht leer ist.', 'LL_mailer')?></td>
+                    <td>
+                      <?=sprintf(__('Abonnenten-Attribut aus den Einstellungen (%s), z.B. %s', 'LL_mailer'),
+                                 '<a href="' . LL_mailer::admin_url() . LL_mailer::admin_page_settings . '" target="_blank">?</a>',
+                                 '<code>' . implode('</code>, <code>', LL_mailer::token_SUBSCRIBER_ATTRIBUTE['example']) . '</code>')?>
+                    </td>
+                  </tr>
+
+                  <tr><td colspan=2><?=__('In Post-Benachrichtigungen:', 'LL_mailer')?></td></tr>
+                  <tr>
+                    <td><?=LL_mailer::list_item?></td>
+                    <td><code><?=LL_mailer::token_POST_ATTRIBUTE['html']?></code></td>
+                    <td>
+                      <?=sprintf(__('WP_Post Attribute (%s), z.B. %s', 'LL_mailer'),
+                                 '<a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">?</a>',
+                                 '<code>' . implode('</code>, <code>', LL_mailer::token_POST_ATTRIBUTE['example']) . '</code>')?>
+                      <p><?=__('Zusätzlich verfügbare Attribute', 'LL_mailer')?>: <code>"url"</code></p>
+                    </td>
                   </tr><tr>
                     <td><?=LL_mailer::list_item?></td>
+                    <td><code><?=LL_mailer::token_POST_META['html']?></code></td>
+                    <td>
+                      <?=sprintf(__('Individuelle Post-Metadaten (%s), z.B. %s', 'LL_mailer'),
+                                 '<a href="https://codex.wordpress.org/Custom_Fields" target="_blank">?</a>',
+                                 '<code>' . implode('</code>, <code>', LL_mailer::token_POST_META['example']) . '</code>')?>
+                    </td>
+                  </tr>
+
+                  <tr><td colspan=2><?=__('In Willkommen-E-Mails:', 'LL_mailer')?></td></tr>
+                  <tr>
+                    <td><?=LL_mailer::list_item?></td>
                     <td><code><?=LL_mailer::token_CONFIRMATION_URL['html']?></code></td>
-                    <td><?=__('URL für Bestätigungs-Link.', 'LL_mailer')?></td>
+                    <td><?=__('URL für Bestätigungs-Link', 'LL_mailer')?></td>
                   </tr>
                 </table>
               </td>
