@@ -1169,18 +1169,6 @@ class LL_mailer
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
           <table class="form-table">
             <tr>
-              <th scope="row"><?=__('Betreff', 'LL_mailer')?></th>
-              <td>
-                <input type="text" name="subject" value="<?=esc_attr($message['subject'])?>" placeholder="Betreff" style="width: 100%;" />
-              </td>
-            </tr>
-            <tr>
-              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau', 'LL_mailer')?></td>
-              <td>
-                <input disabled id="subject_preview" type="text" value="<?=esc_attr($message['subject'])?>" style="width: 100%; color: black; background: white;" />
-              </td>
-            </tr>
-            <tr>
               <th scope="row"><?=__('Vorlage', 'LL_mailer')?></th>
               <td>
                 <select name="template_slug" style="min-width: 50%; max-width: 100%;">
@@ -1194,6 +1182,18 @@ class LL_mailer
 ?>
                 </select> &nbsp;
                 <a id="<?=LL_mailer::_?>_template_edit_link" href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit . urlencode($message['template_slug'])?>">(<?=__('Zur Vorlage', 'LL_mailer')?>)</a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><?=__('Betreff', 'LL_mailer')?></th>
+              <td>
+                <input type="text" name="subject" value="<?=esc_attr($message['subject'])?>" placeholder="Betreff" style="width: 100%;" />
+              </td>
+            </tr>
+            <tr>
+              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau', 'LL_mailer')?></td>
+              <td>
+                <input disabled id="subject_preview" type="text" value="<?=esc_attr($message['subject'])?>" style="width: 100%; color: black; background: white;" />
               </td>
             </tr>
             <tr>
@@ -1289,10 +1289,10 @@ class LL_mailer
           </table>
         </form>
         <script>
-          var input_subject = document.querySelector('[name="subject"]');
-          var preview_subject = document.querySelector('#subject_preview');
           var template_select = document.querySelector('[name="template_slug"]');
           var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
+          var input_subject = document.querySelector('[name="subject"]');
+          var preview_subject = document.querySelector('#subject_preview');
           var textarea_html = document.querySelector('[name="body_html"]');
           var textarea_text = document.querySelector('[name="body_text"]');
           var template_body_html_div = document.querySelector('#LL_mailer_template_body_html');
@@ -1483,8 +1483,8 @@ class LL_mailer
         
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_message_edit')) {
           $message = array(
-            'subject' => $_POST['subject'] ?: null,
             'template_slug' => $_POST['template_slug'] ?: null,
+            'subject' => $_POST['subject'] ?: null,
             'body_html' => $_POST['body_html'] ?: null,
             'body_text' => strip_tags($_POST['body_text']) ?: null);
           LL_mailer::db_update_message($message, $message_slug);
