@@ -474,6 +474,7 @@ class LL_mailer
     if (isset($msg)) {
       $msg = LL_mailer::db_get_message_by_slug($msg);
       if (is_null($msg)) return __('Nachricht nicht gefunden.', 'LL_mailer');
+      $subject = $msg['subject'];
       $body_html = $msg['body_html'];
       $body_text = $msg['body_text'];
 
@@ -490,6 +491,7 @@ class LL_mailer
     $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
 
     $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
+    $subject = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($subject, false, $to, $attributes);
     $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes);
     $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes);
 
@@ -497,9 +499,11 @@ class LL_mailer
       $post = get_post($post_id);
       $post_a = get_post($post, ARRAY_A);
 
+      $subject = LL_mailer::replace_token_POST_ATTRIBUTE($subject, false, $post, $post_a);
       $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, true, $post, $post_a);
       $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, false, $post, $post_a);
 
+      $subject = LL_mailer::replace_token_POST_META($subject, false, $post);
       $body_html = LL_mailer::replace_token_POST_META($body_html, true, $post);
       $body_text = LL_mailer::replace_token_POST_META($body_text, false, $post);
     }
@@ -508,7 +512,7 @@ class LL_mailer
     $cssin = new FM\CSSIN();
     $body_html = $cssin->inlineCSS(site_url(), $body_html);
 
-    return array($to, $msg, $body_html, $body_text);
+    return array($to, $subject, $body_html, $body_text);
   }
   
   static function send_mail($to, $msg, $post_id = null)
@@ -517,7 +521,7 @@ class LL_mailer
     if (is_string($mail_or_error)) {
       return $mail_or_error;
     }
-    list($to, $msg, $body_html, $body_text) = $mail_or_error;
+    list($to, $subject, $body_html, $body_text) = $mail_or_error;
 
     require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
     require LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
@@ -532,7 +536,7 @@ class LL_mailer
       // $mail->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
 
       $mail->isHTML(true);
-      $mail->Subject = utf8_decode($msg['subject']);
+      $mail->Subject = utf8_decode($subject);
       $mail->Body = utf8_decode($body_html);
       $mail->AltBody = utf8_decode($body_text);
 
@@ -567,8 +571,8 @@ class LL_mailer
         return array('error' => $mail_or_error);
       }
       else {
-        list($to, $msg, $body_html, $body_text) = $mail_or_error;
-        return array('html' => $body_html, 'text' => $body_text, 'error' => null);
+        list($to, $subject, $body_html, $body_text) = $mail_or_error;
+        return array('subject' => $subject, 'html' => $body_html, 'text' => $body_text, 'error' => null);
       }
     }
     return null;
@@ -1171,6 +1175,12 @@ class LL_mailer
               </td>
             </tr>
             <tr>
+              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau', 'LL_mailer')?></td>
+              <td>
+                <input disabled id="subject_preview" type="text" value="<?=esc_attr($message['subject'])?>" style="width: 100%; color: black; background: white;" />
+              </td>
+            </tr>
+            <tr>
               <th scope="row"><?=__('Vorlage', 'LL_mailer')?></th>
               <td>
                 <select name="template_slug" style="min-width: 50%; max-width: 100%;">
@@ -1279,6 +1289,8 @@ class LL_mailer
           </table>
         </form>
         <script>
+          var input_subject = document.querySelector('[name="subject"]');
+          var preview_subject = document.querySelector('#subject_preview');
           var template_select = document.querySelector('[name="template_slug"]');
           var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
           var textarea_html = document.querySelector('[name="body_html"]');
@@ -1294,6 +1306,7 @@ class LL_mailer
           function update_preview_text(preview, template_body_div, textarea) {
             preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value);
           }
+          jQuery(input_subject).on('input', function() { preview_subject.value = input_subject.value; });
           jQuery(textarea_html).on('input', function() { update_preview_html(preview_html, template_body_html_div, textarea_html); });
           jQuery(textarea_text).on('input', function() { update_preview_text(preview_text, template_body_text_div, textarea_text); });
           jQuery(template_select).on('input', function() {
@@ -1394,12 +1407,13 @@ class LL_mailer
             </select> &nbsp;
             <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', '', false); ?> &nbsp;
           </form>
-          <?php submit_button(__('Platzhalter in Vorschau (HTML und Text) testen', 'LL_mailer'), '', 'test_token_in_preview', false); ?> &nbsp;
+          <?php submit_button(__('Platzhalter in Vorschau-Feldern testen', 'LL_mailer'), '', 'test_token_in_preview', false); ?> &nbsp;
           <i id="<?=LL_mailer::_?>_testmail_response"></i>
           <script>
             var to_select = document.querySelector('#LL_mailer_testmail #to');
             var post_select = document.querySelector('#LL_mailer_testmail #post');
             var response_tag = document.querySelector('#LL_mailer_testmail_response');
+            var preview_subject = document.querySelector('#subject_preview');
             var preview_html = document.querySelector('#body_html_preview');
             var preview_text = document.querySelector('#body_text_preview');
             jQuery('#LL_mailer_testmail').submit(function(e) {
@@ -1423,6 +1437,7 @@ class LL_mailer
                 }
                 else {
                   response_tag.innerHTML = '';
+                  preview_subject.value = response.subject;
                   preview_html.contentWindow.document.body.innerHTML = response.html;
                   preview_text.value = response.text;
                 }
