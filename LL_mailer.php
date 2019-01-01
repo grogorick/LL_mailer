@@ -81,6 +81,7 @@ class LL_mailer
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
+  const secondary_settings_label = 'style="vertical-align: baseline;"';
   
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
@@ -405,7 +406,7 @@ class LL_mailer
           case 'alt' : $alt = $match[$i + 1]; break;
         }
 
-        [$replace_value, $error] = $get_value_by_attr($attr, $match[$FULL]);
+        list($replace_value, $error) = $get_value_by_attr($attr, $match[$FULL]);
 
         if (!empty($replace_value)) {
           $replace_value_fmt = isset($fmt) ? sprintf($fmt, $replace_value) : $replace_value;
@@ -444,7 +445,7 @@ class LL_mailer
           return array($post_a[$attr], '');
         else {
           switch ($attr) {
-            case 'url': return array(get_post_permalink($post));
+            case 'url': return array(home_url(user_trailingslashit($post->post_name)), '');
             default: return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein WP_Post Attribut', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr) . ')');
           }
         }
@@ -461,8 +462,8 @@ class LL_mailer
           return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein Post-Meta Attribut von Post "%s"', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr, $post->post_title) . ')');
       });
   }
-  
-  static function send_mail($to, $msg, $post_id = null)
+
+  static function prepare_mail($to, $msg, $post_id = null)
   {
     if (isset($to)) {
       $to = LL_mailer::db_get_subscriber_by_mail($to);
@@ -484,16 +485,13 @@ class LL_mailer
     }
     else return __('Keine Nachricht angegeben.', 'LL_mailer');
 
-
     $confirm_url = LL_mailer::json_url() . 'confirm_subscription?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
     $body_html = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
     $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
 
-
     $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
     $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes);
     $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes);
-
 
     if (!is_null($post_id)) {
       $post = get_post($post_id);
@@ -506,11 +504,20 @@ class LL_mailer
       $body_text = LL_mailer::replace_token_POST_META($body_text, false, $post);
     }
 
-
     require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
     $cssin = new FM\CSSIN();
     $body_html = $cssin->inlineCSS(site_url(), $body_html);
 
+    return array($to, $msg, $body_html, $body_text);
+  }
+  
+  static function send_mail($to, $msg, $post_id = null)
+  {
+    $mail_or_error = LL_mailer::prepare_mail($to, $msg, $post_id);
+    if (is_string($mail_or_error)) {
+      return $mail_or_error;
+    }
+    list($to, $msg, $body_html, $body_text) = $mail_or_error;
 
     require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
     require LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
@@ -530,7 +537,7 @@ class LL_mailer
       $mail->AltBody = utf8_decode($body_text);
 
       $success = $mail->send();
-      return false;
+      return $success ? false : __('Fehler beim Senden der E-Mail (PHPMailer).', 'LL_mailer');
 
     } catch (PHPMailer\PHPMailer\Exception $e) {
       return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $mail->ErrorInfo;
@@ -549,6 +556,19 @@ class LL_mailer
       }
       else {
         return $error;
+      }
+    }
+    else if (isset($request['preview'])) {
+      $mail_or_error = LL_mailer::prepare_mail(
+        $request['to'],
+        $request['msg'],
+        $request['post'] ?: null);
+      if (is_string($mail_or_error)) {
+        return array('error' => $mail_or_error);
+      }
+      else {
+        list($to, $msg, $body_html, $body_text) = $mail_or_error;
+        return array('html' => $body_html, 'text' => $body_text, 'error' => null);
       }
     }
     return null;
@@ -625,7 +645,6 @@ class LL_mailer
   
   static function admin_page_settings()
   {
-    $valign = 'style="vertical-align: baseline;"';
 ?>
     <div class="wrap">
       <h1><?=__('Allgemeine Einstellungen', 'LL_mailer')?></h1>
@@ -645,7 +664,7 @@ class LL_mailer
             <th scope="row" style="padding-bottom: 0;"><?=__('Blog-Seiten', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=$valign?>><?=__('Dem Blog folgen', 'LL_mailer')?></td>
+            <td <?=LL_mailer::secondary_settings_label?>><?=__('Dem Blog folgen', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_subscribe_page" name="<?=LL_mailer::option_subscribe_page?>" value="<?=esc_attr(get_option(LL_mailer::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=LL_mailer::_?>_subscribe_page_response"></span>
@@ -653,14 +672,14 @@ class LL_mailer
             </td>
           </tr>
           <tr>
-            <td <?=$valign?>><?=__('Bestätigungs-E-Mail gesendet', 'LL_mailer')?></td>
+            <td <?=LL_mailer::secondary_settings_label?>><?=__('Bestätigungs-E-Mail gesendet', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_confirmation_sent_page" name="<?=LL_mailer::option_confirmation_sent_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmation_sent_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=LL_mailer::_?>_confirmation_sent_page_response"></span>
             </td>
           </tr>
           <tr>
-            <td <?=$valign?>><?=__('E-Mail bestätigt', 'LL_mailer')?></td>
+            <td <?=LL_mailer::secondary_settings_label?>><?=__('E-Mail bestätigt', 'LL_mailer')?></td>
             <td>
               <input type="text" id="<?=LL_mailer::_?>_confirmed_page" name="<?=LL_mailer::option_confirmed_page?>" value="<?=esc_attr(get_option(LL_mailer::option_confirmed_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=LL_mailer::_?>_confirmed_page_response"></span><br />
@@ -672,7 +691,7 @@ class LL_mailer
             <th scope="row" style="padding-bottom: 0;"><?=__('E-Mail-Nachrichten', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=$valign?>><?=__('Bestätigungs-E-Mail', 'LL_mailer')?></td>
+            <td <?=LL_mailer::secondary_settings_label?>><?=__('Bestätigungs-E-Mail', 'LL_mailer')?></td>
             <td>
               <select id="<?=LL_mailer::option_confirmation_msg?>" name="<?=LL_mailer::option_confirmation_msg?>">
                 <option value="">--</option>
@@ -950,7 +969,7 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
+              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
                     LL_mailer::html_prefix . $template['body_html'] . LL_mailer::html_suffix
@@ -1174,7 +1193,7 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <th scope="row"><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
+              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
                     LL_mailer::html_prefix . $preview_body_html . LL_mailer::html_suffix
@@ -1190,7 +1209,7 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <th scope="row"><?=__('Vorschau (Text)', 'LL_mailer')?></th>
+              <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
                 <div id="<?=LL_mailer::_?>_template_body_text" style="display: none;"><?=$template_body_text?></div>
@@ -1269,22 +1288,22 @@ class LL_mailer
           var preview_html = document.querySelector('#body_html_preview');
           var preview_text = document.querySelector('#body_text_preview');
           var show_hide = [template_select, textarea_html, textarea_text];
-          function updatePreviewHtml(preview, template_body_div, textarea) {
+          function update_preview_html(preview, template_body_div, textarea) {
             preview.contentWindow.document.body.innerHTML = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value);
           }
-          function updatePreviewText(preview, template_body_div, textarea) {
+          function update_preview_text(preview, template_body_div, textarea) {
             preview.value = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value);
           }
-          jQuery(textarea_html).on('input', function() { updatePreviewHtml(preview_html, template_body_html_div, textarea_html); });
-          jQuery(textarea_text).on('input', function() { updatePreviewText(preview_text, template_body_text_div, textarea_text); });
+          jQuery(textarea_html).on('input', function() { update_preview_html(preview_html, template_body_html_div, textarea_html); });
+          jQuery(textarea_text).on('input', function() { update_preview_text(preview_text, template_body_text_div, textarea_text); });
           jQuery(template_select).on('input', function() {
             if (template_select.value === '') {
               template_edit_link.href = '';
               template_edit_link.style.display = 'none';
               template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
               template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
-              updatePreviewHtml(preview_html, template_body_html_div, textarea_html);
-              updatePreviewText(preview_text, template_body_text_div, textarea_text);
+              update_preview_html(preview_html, template_body_html_div, textarea_html);
+              update_preview_text(preview_text, template_body_text_div, textarea_text);
             }
             else {
               for (var i = 0; i < show_hide.length; i++)
@@ -1295,8 +1314,8 @@ class LL_mailer
                 template_edit_link.style.display = 'inline';
                 template_body_html_div.innerHTML = new_template.body_html;
                 template_body_text_div.innerHTML = new_template.body_text;
-                updatePreviewHtml(preview_html, template_body_html_div, textarea_html);
-                updatePreviewText(preview_text, template_body_text_div, textarea_text);
+                update_preview_html(preview_html, template_body_html_div, textarea_html);
+                update_preview_text(preview_text, template_body_text_div, textarea_text);
                 
                 for (var i = 0; i < show_hide.length; i++)
                   show_hide[i].disabled = false;
@@ -1350,7 +1369,7 @@ class LL_mailer
         }
         else {
 ?>
-          <form id="<?=LL_mailer::_?>_testmail" method="post" action="<?=LL_mailer::json_url()?>testmail">
+          <form id="<?=LL_mailer::_?>_testmail" method="post" action="<?=LL_mailer::json_url()?>testmail" style="display: inline;">
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
             <select id="to" name="to">
 <?php
@@ -1372,14 +1391,17 @@ class LL_mailer
 <?php
             }
 ?>
-            </select>
-            <?php submit_button(__('senden', 'LL_mailer'), '', '', false); ?> &nbsp;
-            <i id="response"></i>
+            </select> &nbsp;
+            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', '', false); ?> &nbsp;
           </form>
+          <?php submit_button(__('Platzhalter in Vorschau (HTML und Text) testen', 'LL_mailer'), '', 'test_token_in_preview', false); ?> &nbsp;
+          <i id="<?=LL_mailer::_?>_testmail_response"></i>
           <script>
             var to_select = document.querySelector('#LL_mailer_testmail #to');
             var post_select = document.querySelector('#LL_mailer_testmail #post');
-            var response_tag = document.querySelector('#LL_mailer_testmail #response');
+            var response_tag = document.querySelector('#LL_mailer_testmail_response');
+            var preview_html = document.querySelector('#body_html_preview');
+            var preview_text = document.querySelector('#body_text_preview');
             jQuery('#LL_mailer_testmail').submit(function(e) {
               var btn = this.querySelector('input[type="submit"]');
               btn.disabled = true;
@@ -1387,6 +1409,23 @@ class LL_mailer
               jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(to_select.value) + '&post=' + post_select.value, function(response) {
                 btn.disabled = false;
                 response_tag.innerHTML = response;
+              });
+              e.preventDefault();
+            });
+            jQuery('#test_token_in_preview').click(function(e) {
+              var btn = this;
+              btn.disabled = true;
+              response_tag.innerHTML = '...';
+              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(to_select.value) + '&post=' + post_select.value, function(response) {
+                btn.disabled = false;
+                if (response.error != null) {
+                  response_tag.innerHTML = response.error;
+                }
+                else {
+                  response_tag.innerHTML = '';
+                  preview_html.contentWindow.document.body.innerHTML = response.html;
+                  preview_text.value = response.text;
+                }
               });
               e.preventDefault();
             });
