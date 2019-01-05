@@ -477,32 +477,23 @@ class LL_mailer
       }, $replace_dict);
   }
 
-  static function prepare_mail($to, $msg, $post_id = null)
+  static function prepare_mail_for_post($post_id, &$subject, &$body_html, &$body_text, &$replace_dict)
   {
-    if (isset($to)) {
-      $to = LL_mailer::db_get_subscriber_by_mail($to);
-      if (is_null($to)) return __('Empfänger nicht gefunden.', 'LL_mailer');
-    }
-    else return __('Kein Empfänger angegeben.', 'LL_mailer');
+    $post = get_post($post_id);
+    $post_a = get_post($post, ARRAY_A);
 
-    if (isset($msg)) {
-      $msg = LL_mailer::db_get_message_by_slug($msg);
-      if (is_null($msg)) return __('Nachricht nicht gefunden.', 'LL_mailer');
-      $subject = $msg['subject'];
-      $body_html = $msg['body_html'];
-      $body_text = $msg['body_text'];
+    $subject = LL_mailer::replace_token_POST_ATTRIBUTE($subject, false, $post, $post_a, $replace_dict);
+    $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, true, $post, $post_a, $replace_dict);
+    $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, false, $post, $post_a, $replace_dict);
 
-      if (!is_null($msg['template_slug'])) {
-        $template = LL_mailer::db_get_template_by_slug($msg['template_slug']);
-        $body_html = str_replace(LL_mailer::token_CONTENT['pattern'], $body_html, $template['body_html']);
-        $body_text = str_replace(LL_mailer::token_CONTENT['pattern'], $body_text, $template['body_text']);
-      }
-    }
-    else return __('Keine Nachricht angegeben.', 'LL_mailer');
+    $subject = LL_mailer::replace_token_POST_META($subject, false, $post, $replace_dict);
+    $body_html = LL_mailer::replace_token_POST_META($body_html, true, $post, $replace_dict);
+    $body_text = LL_mailer::replace_token_POST_META($body_text, false, $post, $replace_dict);
+  }
 
-    $replace_dict = array('html' => array(), 'text' => array());
-
-    $confirm_url = LL_mailer::json_url() . 'confirm_subscription?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
+  static function prepare_mail_for_receiver($to, &$subject, &$body_html, &$body_text, &$replace_dict)
+  {
+    $confirm_url = LL_mailer::json_url() . 'confirm-subscription?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
     $body_html = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
     $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
     $replace_dict['html'][LL_mailer::token_CONFIRMATION_URL['pattern']] = $confirm_url;
@@ -512,18 +503,41 @@ class LL_mailer
     $subject = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($subject, false, $to, $attributes, $replace_dict);
     $body_html = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes, $replace_dict);
     $body_text = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes, $replace_dict);
+  }
+
+  static function prepare_mail_for_template($template_slug, &$body_html, &$body_text)
+  {
+    $template = LL_mailer::db_get_template_by_slug($template_slug);
+    $body_html = str_replace(LL_mailer::token_CONTENT['pattern'], $body_html, $template['body_html']);
+    $body_text = str_replace(LL_mailer::token_CONTENT['pattern'], $body_text, $template['body_text']);
+  }
+
+  static function prepare_mail($msg, $to = null, $post_id = null)
+  {
+    if (isset($msg)) {
+      $msg = LL_mailer::db_get_message_by_slug($msg);
+      if (is_null($msg)) return __('Nachricht nicht gefunden.', 'LL_mailer');
+      $subject = $msg['subject'];
+      $body_html = $msg['body_html'];
+      $body_text = $msg['body_text'];
+
+      if (!is_null($msg['template_slug'])) {
+        LL_mailer::prepare_mail_for_template($msg['template_slug'], $body_html, $body_text);
+      }
+    }
+    else return __('Keine Nachricht angegeben.', 'LL_mailer');
+
+    $replace_dict = array('html' => array(), 'text' => array());
+
+    if (!is_null($to)) {
+      $to = LL_mailer::db_get_subscriber_by_mail($to);
+      if (is_null($to)) return __('Empfänger nicht gefunden.', 'LL_mailer');
+
+      LL_mailer::prepare_mail_for_receiver($to, $subject, $body_html, $body_text, $replace_dict);
+    }
 
     if (!is_null($post_id)) {
-      $post = get_post($post_id);
-      $post_a = get_post($post, ARRAY_A);
-
-      $subject = LL_mailer::replace_token_POST_ATTRIBUTE($subject, false, $post, $post_a, $replace_dict);
-      $body_html = LL_mailer::replace_token_POST_ATTRIBUTE($body_html, true, $post, $post_a, $replace_dict);
-      $body_text = LL_mailer::replace_token_POST_ATTRIBUTE($body_text, false, $post, $post_a, $replace_dict);
-
-      $subject = LL_mailer::replace_token_POST_META($subject, false, $post, $replace_dict);
-      $body_html = LL_mailer::replace_token_POST_META($body_html, true, $post, $replace_dict);
-      $body_text = LL_mailer::replace_token_POST_META($body_text, false, $post, $replace_dict);
+      LL_mailer::prepare_mail_for_post($post_id, $subject, $body_html, $body_text, $replace_dict);
     }
 
     require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
@@ -532,15 +546,9 @@ class LL_mailer
 
     return array($to, $subject, $body_html, $body_text, $replace_dict);
   }
-  
-  static function send_mail($to, $msg, $post_id = null)
-  {
-    $mail_or_error = LL_mailer::prepare_mail($to, $msg, $post_id);
-    if (is_string($mail_or_error)) {
-      return $mail_or_error;
-    }
-    list($to, $subject, $body_html, $body_text) = $mail_or_error;
 
+  static function send_mail($from, $to, $subject, $body_html, $body_text)
+  {
     require LL_mailer::pluginPath() . 'phpmailer/Exception.php';
     require LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
     require LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
@@ -548,7 +556,7 @@ class LL_mailer
     $mail = new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
     try {
       $mail->isSendmail();
-      $mail->setFrom(get_option(LL_mailer::option_sender_mail), get_option(LL_mailer::option_sender_name));
+      $mail->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
       $mail->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
 
       // $mail->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
@@ -566,12 +574,26 @@ class LL_mailer
     }
   }
   
+  static function prepare_and_send_mail($msg, $to, $post_id = null)
+  {
+    $mail_or_error = LL_mailer::prepare_mail($msg, $to, $post_id);
+    if (is_string($mail_or_error)) {
+      return $mail_or_error;
+    }
+    list($to, $subject, $body_html, $body_text) = $mail_or_error;
+
+    $from = array(LL_mailer::subscriber_attribute_mail => get_option(LL_mailer::option_sender_mail),
+                  LL_mailer::subscriber_attribute_name => get_option(LL_mailer::option_sender_name));
+
+    return LL_mailer::send_mail($from, $to, $subject, $body_html, $body_text);
+  }
+  
   static function testmail($request)
   {
     if (isset($request['send'])) {
-      $error = LL_mailer::send_mail(
-        $request['to'],
+      $error = LL_mailer::prepare_and_send_mail(
         $request['msg'],
+        $request['to'],
         $request['post'] ?: null);
       if ($error === false) {
         return __('Testnachricht gesendet.', 'LL_mailer');
@@ -582,8 +604,8 @@ class LL_mailer
     }
     else if (isset($request['preview'])) {
       $mail_or_error = LL_mailer::prepare_mail(
-        $request['to'],
         $request['msg'],
+        $request['to'],
         $request['post'] ?: null);
       if (is_string($mail_or_error)) {
         return array('error' => $mail_or_error);
@@ -609,7 +631,7 @@ class LL_mailer
       LL_mailer::message(print_r($new_subscriber, true));
       
       LL_mailer::db_add_subscriber($new_subscriber);
-      $error = LL_mailer::send_mail($new_subscriber[LL_mailer::subscriber_attribute_mail], get_option(LL_mailer::option_confirmation_msg));
+      $error = LL_mailer::prepare_and_send_mail($new_subscriber[LL_mailer::subscriber_attribute_mail], get_option(LL_mailer::option_confirmation_msg));
       if ($error === false) {
         wp_redirect(get_permalink(get_page_by_path(get_option(LL_mailer::option_confirmation_sent_page))) . '?subscriber=' . urlencode(base64_encode($new_subscriber[LL_mailer::subscriber_attribute_mail])));
         exit;
@@ -690,7 +712,7 @@ class LL_mailer
             <td>
               <input type="text" id="<?=LL_mailer::_?>_subscribe_page" name="<?=LL_mailer::option_subscribe_page?>" value="<?=esc_attr(get_option(LL_mailer::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=LL_mailer::_?>_subscribe_page_response"></span>
-              <p><i>(<?=sprintf(__('Nutze <code>%s</code> um ein Formular auf dieser Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIPTION_FORM['html'])?>)</i></p>
+              <p class="description">(<?=sprintf(__('Nutze <code>%s</code> um ein Formular auf dieser Seite anzuzeigen', 'LL_mailer'), LL_mailer::shortcode_SUBSCRIPTION_FORM['html'])?>)</p>
             </td>
           </tr>
           <tr>
@@ -1306,36 +1328,12 @@ class LL_mailer
             </tr>
           </table>
         </form>
-        
+
         <hr />
-        
-        <h1><?=__('Löschen', 'LL_mailer')?></h1>
-        
-<?php
-        if ($message_slug == get_option(LL_mailer::option_confirmation_msg)) {
-?>
-          <i>
-            <?=__('Diese Nachricht kann nicht gelöscht werden, da sie für die Bestätigungs-E-Mail verwendet wird.', 'LL_mailer')?><br />
-            (<a href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_settings?>"><?=__('Zu den Einstellungen', 'LL_mailer')?></a>)
-          </i>
-<?php
-        }
-        else {
-?>
-        <form method="post" action="admin-post.php">
-          <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
-          <?php wp_nonce_field(LL_mailer::_ . '_message_delete'); ?>
-          <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
-          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), ''); ?>
-        </form>
-<?php
-        }
-?>
-        
-        <hr />
-        
+
         <h1><?=__('Testnachricht', 'LL_mailer')?></h1>
-        
+        <br />
+
 <?php
         $subscribers = LL_mailer::db_get_subscribers(array(LL_mailer::subscriber_attribute_mail, LL_mailer::subscriber_attribute_name));
         $test_posts = new WP_Query(array(
@@ -1352,7 +1350,7 @@ class LL_mailer
         }
         else {
 ?>
-          <form id="<?=LL_mailer::_?>_testmail" method="post" action="<?=LL_mailer::json_url()?>testmail" style="display: inline;">
+          <form id="<?=LL_mailer::_?>_testmail">
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
             <select id="to" name="to">
 <?php
@@ -1374,11 +1372,14 @@ class LL_mailer
 <?php
             }
 ?>
-            </select> &nbsp;
-            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', '', false); ?> &nbsp;
+            </select>
           </form>
-          <?php submit_button(__('Platzhalter in Vorschau-Feldern testen', 'LL_mailer'), '', 'test_token_in_preview', false); ?> &nbsp;
+          <br />
           <i id="<?=LL_mailer::_?>_testmail_response"></i>
+          <p>
+            <?php submit_button(__('Platzhalter in Vorschau-Feldern testen', 'LL_mailer'), '', 'replace_token_in_preview', false); ?><br />
+            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
+          </p>
           <script>
             var template_select = document.querySelector('[name="template_slug"]');
             var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
@@ -1448,17 +1449,7 @@ class LL_mailer
               }
             });
 
-            jQuery('#LL_mailer_testmail').submit(function(e) {
-              var btn = this.querySelector('input[type="submit"]');
-              btn.disabled = true;
-              testmail_response_tag.innerHTML = '...';
-              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function(response) {
-                btn.disabled = false;
-                testmail_response_tag.innerHTML = response;
-              });
-              e.preventDefault();
-            });
-            jQuery('#test_token_in_preview').click(function(e) {
+            jQuery('#replace_token_in_preview').click(function(e) {
               var btn = this;
               btn.disabled = true;
               testmail_response_tag.innerHTML = '...';
@@ -1468,7 +1459,7 @@ class LL_mailer
                   testmail_response_tag.innerHTML = response.error;
                 }
                 else {
-                  testmail_response_tag.innerHTML = '';
+                  testmail_response_tag.innerHTML = '<?=__('Vorschau aktualisiert')?>';
                   preview_subject.value = response.subject;
                   preview_html.contentWindow.document.body.innerHTML = response.html;
                   preview_text.value = response.text;
@@ -1478,7 +1469,42 @@ class LL_mailer
               });
               e.preventDefault();
             });
+            jQuery('#send_testmail').click(function(e) {
+              var btn = this;
+              btn.disabled = true;
+              testmail_response_tag.innerHTML = '...';
+              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function(response) {
+                btn.disabled = false;
+                testmail_response_tag.innerHTML = response;
+              });
+              e.preventDefault();
+            });
           </script>
+<?php
+        }
+?>
+        
+        <hr />
+        
+        <h1><?=__('Löschen', 'LL_mailer')?></h1>
+        
+<?php
+        if ($message_slug == get_option(LL_mailer::option_confirmation_msg)) {
+?>
+          <i>
+            <?=__('Diese Nachricht kann nicht gelöscht werden, da sie für die Bestätigungs-E-Mail verwendet wird.', 'LL_mailer')?><br />
+            (<a href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_settings?>"><?=__('Zu den Einstellungen', 'LL_mailer')?></a>)
+          </i>
+<?php
+        }
+        else {
+?>
+        <form method="post" action="admin-post.php">
+          <input type="hidden" name="action" value="<?=LL_mailer::_?>_message_action" />
+          <?php wp_nonce_field(LL_mailer::_ . '_message_delete'); ?>
+          <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
+          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), ''); ?>
+        </form>
 <?php
         }
       } break;
@@ -1794,7 +1820,7 @@ class LL_mailer
         'callback' => LL_mailer::_('subscribe'),
         'methods' => 'POST'
       ));
-      register_rest_route('LL_mailer/v1', 'confirm_subscription', array(
+      register_rest_route('LL_mailer/v1', 'confirm-subscription', array(
         'callback' => LL_mailer::_('confirm_subscription')
       ));
     });
