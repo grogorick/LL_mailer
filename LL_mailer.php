@@ -527,6 +527,11 @@ class LL_mailer
     require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
     $cssin = new FM\CSSIN();
     $body_html = $cssin->inlineCSS(site_url(), $body_html);
+
+    $body_html = preg_replace('/class="[^"]*"|class=\'[^\']*\'/i', '', $body_html);
+    $body_html = preg_replace('/\\n|\\r|\\r\\n/', '', $body_html);
+    $body_html = preg_replace('/>\\s+</i', '><', $body_html);
+    $body_html = preg_replace('/\\s\\s+/i', ' ', $body_html);
   }
 
   static function prepare_mail($msg, $to = null, $post_id = null, $apply_template = true, $inline_css = true)
