@@ -103,29 +103,76 @@ class LL_mailer
   }
   
   static function is_predefined_subscriber_attribute($attr) { return in_array($attr, array(LL_mailer::subscriber_attribute_mail, LL_mailer::subscriber_attribute_name)); }
+
+  static function msg_id_new_post_published($post_id) { return 'new-post-published-' . $post_id; }
+
+
   
-  
-  
-  static function message($msg)
+  static function message($msg, $sticky_id = false)
   {
     $msgs = LL_mailer::get_option_array(LL_mailer::option_msg);
-    $msgs[] = $msg;
+    $msgs[] = array($msg, $sticky_id);
     update_option(LL_mailer::option_msg, $msgs);
+  }
+
+  static function hide_message($sticky_id)
+  {
+    $msgs = LL_mailer::get_option_array(LL_mailer::option_msg);
+    foreach ($msgs as $key => &$msg) {
+      if ($msg[1] === $sticky_id) {
+        unset($msgs[$key]);
+      }
+    }
+    if (empty($msgs)) {
+      delete_option(LL_mailer::option_msg);
+    }
+    else {
+      update_option(LL_mailer::option_msg, $msgs);
+    }
   }
   
   static function admin_notices()
   {
+    // notice
     // notice-error, notice-warning, notice-success or notice-info
     // is-dismissible
     $msgs = LL_mailer::get_option_array(LL_mailer::option_msg);
     if (!empty($msgs)) {
-      ?><div class="notice notice-info is-dismissible"><?php
-      foreach ($msgs as &$msg) {
-        if (!isset($first_line)) $first_line = true; else echo '<hr />';
-        ?><p><?=nl2br($msg)?></p><?php
+      foreach ($msgs as $key => &$msg) {
+        $hide_class = ($msg[1]) ? ' ' . LL_mailer::_ . '_sticky_message' : '';
+        echo '<div class="notice notice-info' . $hide_class . '">';
+        if ($msg[1]) {
+          echo '<p style="float: right; padding-left: 20px;">' .
+                '(<a class="' . LL_mailer::_ . '_sticky_message_hide_link" href="' . LL_mailer::json_url() . 'get?hide_message=' . $msg[1] . '">' . __('Ausblenden', 'LL_mailer') . '</a>)' .
+               '</p>';
+        }
+        echo '<p>' . nl2br($msg[0]) . '</p></div>';
+        if (!$msg[1]) {
+          unset($msgs[$key]);
+        }
       }
-      ?></div><?php
-      delete_option(LL_mailer::option_msg);
+?>
+      <script>
+        new function() {
+          var msg_tags = document.querySelectorAll('.<?=LL_mailer::_?>_sticky_message');
+          for (var i = 0; i < msg_tags.length; i++) {
+            var msg_tag = msg_tags[i];
+            var a_tag = msg_tag.querySelector('.<?=LL_mailer::_?>_sticky_message_hide_link');
+            jQuery(a_tag).click(function(e) {
+              e.preventDefault();
+              this.parentNode.parentNode.style.display = 'none';
+              jQuery.get(this.href + '&no_redirect');
+            });
+          }
+        };
+      </script>
+<?php
+      if (empty($msgs)) {
+        delete_option(LL_mailer::option_msg);
+      }
+      else {
+        update_option(LL_mailer::option_msg, $msgs);
+      }
     }
   }
   
@@ -396,6 +443,12 @@ class LL_mailer
       return array(
         'id'  => $id,
         'url' => $url);
+    }
+    else if (isset($request['hide_message'])) {
+      LL_mailer::hide_message($request['hide_message']);
+      if (!isset($request['no_redirect'])) {
+        wp_redirect($request->get_header('referer'));
+      }
     }
   }
 
@@ -675,9 +728,13 @@ class LL_mailer
             if ($err) $error[] = $err;
           }
           if (!empty($error)) return "Fehler: " . implode('<br />', $error);
-          LL_mailer::message(sprintf(__('E-Mails wurden an %d Abonnent(en) versandt.', 'LL_mailer'), count($subscribers)));
+          LL_mailer::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', count($subscribers)));
+          LL_mailer::hide_message(LL_mailer::msg_id_new_post_published($post->ID));
           wp_redirect(LL_mailer::get_post_edit_url($post->ID));
           exit;
+
+        default:
+          break;
       }
     }
     return null;
@@ -727,7 +784,9 @@ class LL_mailer
   static function post_status_transition($new_status, $old_status, $post)
   {
     if ($new_status == 'publish' && $old_status != 'publish') {
-      LL_mailer::message('Du hast einen neuen Post veröffentlicht. &nbsp; <a href="' . LL_mailer::json_url() . 'new-post-mail?to=all&post=' . $post->ID . '">Jetzt E-Mail Abonnenten informieren</a>');
+      LL_mailer::message('Du hast den Post <b>' . get_the_title($post) . '</b> veröffentlicht.' .
+                         ' &nbsp; <a href="' . LL_mailer::json_url() . 'new-post-mail?to=all&post=' . $post->ID . '">Jetzt E-Mail Abonnenten informieren</a>',
+                         LL_mailer::msg_id_new_post_published($post->ID));
     }
   }
 
@@ -882,7 +941,7 @@ class LL_mailer
           check_page_exists('_confirmed_page');
           link_message('<?=LL_mailer::option_confirmation_msg?>');
           link_message('<?=LL_mailer::option_new_post_msg?>');
-        }
+        };
       </script>
       <hr />
       <table class="form-table">
@@ -1122,10 +1181,12 @@ class LL_mailer
           </table>
         </form>
         <script>
-          var preview = document.querySelector('#body_html_preview');
-          jQuery('[name="body_html"]').on('input', function() {
-            preview.contentWindow.document.body.innerHTML = this.value;
-          });
+          new function() {
+            var preview = document.querySelector('#body_html_preview');
+            jQuery('[name="body_html"]').on('input', function () {
+              preview.contentWindow.document.body.innerHTML = this.value;
+            });
+          };
         </script>
         
         <hr />
@@ -1358,7 +1419,7 @@ class LL_mailer
                 
                 <style>
                   .LL_mailer_token_table td {
-                    padding: 10px 0px 0px 0px;
+                    padding: 10px 0 0 0;
                     vertical-align: top;
                   }
                   .LL_mailer_token_table td:nth-child(n+2) {
@@ -1467,104 +1528,113 @@ class LL_mailer
             <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
           </p>
           <script>
-            var template_select = document.querySelector('[name="template_slug"]');
-            var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
-            var input_subject = document.querySelector('[name="subject"]');
-            var preview_subject = document.querySelector('#subject_preview');
-            var textarea_html = document.querySelector('[name="body_html"]');
-            var textarea_text = document.querySelector('[name="body_text"]');
-            var template_body_html_div = document.querySelector('#LL_mailer_template_body_html');
-            var template_body_text_div = document.querySelector('#LL_mailer_template_body_text');
-            var preview_html = document.querySelector('#body_html_preview');
-            var preview_text = document.querySelector('#body_text_preview');
-            var show_hide = [template_select, textarea_html, textarea_text];
+            new function() {
+              var template_select = document.querySelector('[name="template_slug"]');
+              var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
+              var input_subject = document.querySelector('[name="subject"]');
+              var preview_subject = document.querySelector('#subject_preview');
+              var textarea_html = document.querySelector('[name="body_html"]');
+              var textarea_text = document.querySelector('[name="body_text"]');
+              var template_body_html_div = document.querySelector('#LL_mailer_template_body_html');
+              var template_body_text_div = document.querySelector('#LL_mailer_template_body_text');
+              var preview_html = document.querySelector('#body_html_preview');
+              var preview_text = document.querySelector('#body_text_preview');
+              var show_hide = [template_select, textarea_html, textarea_text];
 
-            var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
-            var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
-            var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
-            var testmail_replace_dict_html = {};
-            var testmail_replace_dict_text = {};
+              var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
+              var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
+              var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
+              var testmail_replace_dict_html = {};
+              var testmail_replace_dict_text = {};
 
-            jQuery(input_subject).on('input', function() {
-              var text = input_subject.value;
-              for (var r in testmail_replace_dict_text) {
-                text = text.replace(r, testmail_replace_dict_text[r], 'g');
+              jQuery(input_subject).on('input', function () {
+                var text = input_subject.value;
+                for (var r in testmail_replace_dict_text) {
+                  text = text.replace(r, testmail_replace_dict_text[r], 'g');
+                }
+                preview_subject.value = text;
+              });
+
+              function update_preview_html(preview, template_body_div, textarea) {
+                var html = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
+                for (var r in testmail_replace_dict_html) {
+                  html = html.replace(r, testmail_replace_dict_html[r], 'g');
+                }
+                preview.contentWindow.document.body.innerHTML = html;
               }
-              preview_subject.value = text;
-            });
-            function update_preview_html(preview, template_body_div, textarea) {
-              var html = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
-              for (var r in testmail_replace_dict_html) {
-                html = html.replace(r, testmail_replace_dict_html[r], 'g');
+
+              function update_preview_text(preview, template_body_div, textarea) {
+                var text = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
+                for (var r in testmail_replace_dict_text) {
+                  text = text.replace(r, testmail_replace_dict_text[r], 'g');
+                }
+                preview.value = text;
               }
-              preview.contentWindow.document.body.innerHTML = html;
-            }
-            function update_preview_text(preview, template_body_div, textarea) {
-              var text = template_body_div.innerHTML.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
-              for (var r in testmail_replace_dict_text) {
-                text = text.replace(r, testmail_replace_dict_text[r], 'g');
-              }
-              preview.value = text;
-            }
-            jQuery(textarea_html).on('input', function() { update_preview_html(preview_html, template_body_html_div, textarea_html); });
-            jQuery(textarea_text).on('input', function() { update_preview_text(preview_text, template_body_text_div, textarea_text); });
-            jQuery(template_select).on('input', function() {
-              if (template_select.value === '') {
-                template_edit_link.href = '';
-                template_edit_link.style.display = 'none';
-                template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
-                template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
+
+              jQuery(textarea_html).on('input', function () {
                 update_preview_html(preview_html, template_body_html_div, textarea_html);
+              });
+              jQuery(textarea_text).on('input', function () {
                 update_preview_text(preview_text, template_body_text_div, textarea_text);
-              }
-              else {
-                for (var i = 0; i < show_hide.length; i++)
-                  show_hide[i].disabled = true;
-
-                jQuery.getJSON('<?=LL_mailer::json_url()?>get?template=' + template_select.value, function(new_template) {
-                  template_edit_link.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit?>' + encodeURI(new_template.slug);
-                  template_edit_link.style.display = 'inline';
-                  template_body_html_div.innerHTML = new_template.body_html;
-                  template_body_text_div.innerHTML = new_template.body_text;
+              });
+              jQuery(template_select).on('input', function () {
+                if (template_select.value === '') {
+                  template_edit_link.href = '';
+                  template_edit_link.style.display = 'none';
+                  template_body_html_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
+                  template_body_text_div.innerHTML = '<?=LL_mailer::token_CONTENT['pattern']?>';
                   update_preview_html(preview_html, template_body_html_div, textarea_html);
                   update_preview_text(preview_text, template_body_text_div, textarea_text);
-
-                  for (var i = 0; i < show_hide.length; i++)
-                    show_hide[i].disabled = false;
-                });
-              }
-            });
-
-            jQuery('#replace_token_in_preview').click(function(e) {
-              var btn = this;
-              btn.disabled = true;
-              testmail_response_tag.innerHTML = '...';
-              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function(response) {
-                btn.disabled = false;
-                if (response.error != null) {
-                  testmail_response_tag.innerHTML = response.error;
                 }
                 else {
-                  testmail_response_tag.innerHTML = '<?=__('Vorschau aktualisiert')?>';
-                  preview_subject.value = response.subject;
-                  preview_html.contentWindow.document.body.innerHTML = response.html;
-                  preview_text.value = response.text;
-                  testmail_replace_dict_html = response.replace_dict.html;
-                  testmail_replace_dict_text = response.replace_dict.text;
+                  for (var i = 0; i < show_hide.length; i++)
+                    show_hide[i].disabled = true;
+
+                  jQuery.getJSON('<?=LL_mailer::json_url()?>get?template=' + template_select.value, function (new_template) {
+                    template_edit_link.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit?>' + encodeURI(new_template.slug);
+                    template_edit_link.style.display = 'inline';
+                    template_body_html_div.innerHTML = new_template.body_html;
+                    template_body_text_div.innerHTML = new_template.body_text;
+                    update_preview_html(preview_html, template_body_html_div, textarea_html);
+                    update_preview_text(preview_text, template_body_text_div, textarea_text);
+
+                    for (var i = 0; i < show_hide.length; i++)
+                      show_hide[i].disabled = false;
+                  });
                 }
               });
-              e.preventDefault();
-            });
-            jQuery('#send_testmail').click(function(e) {
-              var btn = this;
-              btn.disabled = true;
-              testmail_response_tag.innerHTML = '...';
-              jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function(response) {
-                btn.disabled = false;
-                testmail_response_tag.innerHTML = response;
+
+              jQuery('#replace_token_in_preview').click(function (e) {
+                var btn = this;
+                btn.disabled = true;
+                testmail_response_tag.innerHTML = '...';
+                jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
+                  btn.disabled = false;
+                  if (response.error != null) {
+                    testmail_response_tag.innerHTML = response.error;
+                  }
+                  else {
+                    testmail_response_tag.innerHTML = '<?=__('Vorschau aktualisiert')?>';
+                    preview_subject.value = response.subject;
+                    preview_html.contentWindow.document.body.innerHTML = response.html;
+                    preview_text.value = response.text;
+                    testmail_replace_dict_html = response.replace_dict.html;
+                    testmail_replace_dict_text = response.replace_dict.text;
+                  }
+                });
+                e.preventDefault();
               });
-              e.preventDefault();
-            });
+              jQuery('#send_testmail').click(function (e) {
+                var btn = this;
+                btn.disabled = true;
+                testmail_response_tag.innerHTML = '...';
+                jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
+                  btn.disabled = false;
+                  testmail_response_tag.innerHTML = response;
+                });
+                e.preventDefault();
+              });
+            };
           </script>
 <?php
         }
