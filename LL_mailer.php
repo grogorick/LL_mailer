@@ -31,7 +31,7 @@ class LL_mailer
   const subscriber_attribute_mail           = 'mail';
   const subscriber_attribute_name           = 'name';
   const subscriber_attribute_subscribed_at  = 'subscribed_at';
-  
+
   const table_templates                     = LL_mailer::_ . '_templates';
   const table_messages                      = LL_mailer::_ . '_messages';
   const table_subscribers                   = LL_mailer::_ . '_subscribers';
@@ -577,7 +577,7 @@ class LL_mailer
 
   static function prepare_mail_inline_css(&$body_html)
   {
-    require LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
+    require_once LL_mailer::pluginPath() . 'cssin/src/CSSIN.php';
     $cssin = new FM\CSSIN();
     $body_html = $cssin->inlineCSS(site_url(), $body_html);
 
@@ -625,18 +625,15 @@ class LL_mailer
     return array($to, $subject, $body_html, $body_text, $replace_dict, $post);
   }
 
-  static function prepare_send_mail()
-  {
-    require_once LL_mailer::pluginPath() . 'phpmailer/Exception.php';
-    require_once LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
-    require_once LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
-
-    return new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
-  }
-
-  static function send_mail($from, $to, $subject, $body_html, $body_text, &$mail)
+  static function send_mail($from, $to, $subject, $body_html, $body_text)
   {
     try {
+      require_once LL_mailer::pluginPath() . 'phpmailer/Exception.php';
+      require_once LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
+      require_once LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
+
+      $mail = new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
+
       $mail->isSendmail();
       $mail->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
       $mail->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
@@ -665,8 +662,7 @@ class LL_mailer
     $from = array(LL_mailer::subscriber_attribute_mail => get_option(LL_mailer::option_sender_mail),
                   LL_mailer::subscriber_attribute_name => get_option(LL_mailer::option_sender_name));
 
-    $mail = LL_mailer::prepare_send_mail();
-    return LL_mailer::send_mail($from, $to, $subject, $body_html, $body_text, $mail);
+    return LL_mailer::send_mail($from, $to, $subject, $body_html, $body_text);
   }
   
   static function testmail($request)
@@ -712,8 +708,6 @@ class LL_mailer
           $from = array(LL_mailer::subscriber_attribute_mail => get_option(LL_mailer::option_sender_mail),
                         LL_mailer::subscriber_attribute_name => get_option(LL_mailer::option_sender_name));
 
-          $mail = LL_mailer::prepare_send_mail();
-
           $subscribers = LL_mailer::db_get_subscribers('*');
           $error = array();
           foreach ($subscribers as $subscriber) {
@@ -724,7 +718,7 @@ class LL_mailer
             LL_mailer::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $replace_dict);
             LL_mailer::prepare_mail_inline_css($tmp_body_html);
 
-            $err = LL_mailer::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $mail);
+            $err = LL_mailer::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text);
             if ($err) $error[] = $err;
           }
           if (!empty($error)) return "Fehler: " . implode('<br />', $error);
