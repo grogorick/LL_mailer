@@ -1819,7 +1819,22 @@ class LL_mailer
             <tr>
               <th scope="row"><?=__('Abonniert am', 'LL_mailer')?></th>
               <td>
-                <?=$subscriber[LL_mailer::subscriber_attribute_subscribed_at] ?: ('<i>(' . __('unbestätigt', 'LL_mailer') . ')</i>')?>
+<?php
+                if (isset($subscriber[LL_mailer::subscriber_attribute_subscribed_at])) {
+                  echo $subscriber[LL_mailer::subscriber_attribute_subscribed_at];
+                }
+                else {
+?>
+                  <i>( <?=__('unbestätigt', 'LL_mailer')?> )</i> &nbsp;
+                  <form method="post" action="admin-post.php" style="display: inline;">
+                    <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
+                    <?php wp_nonce_field(LL_mailer::_ . '_subscriber_manual_confirm'); ?>
+                    <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
+                    <?php submit_button(__('Bestätigen (E-Mail-Link überspringen)', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
+                  </form>
+<?php
+                }
+?>
               </td>
             </tr>
           </table>
@@ -1893,6 +1908,14 @@ class LL_mailer
           exit;
         }
         
+        else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_manual_confirm')) {
+          LL_mailer::db_confirm_subscriber($subscriber_mail);
+
+          LL_mailer::message(sprintf(__('Abonnent <b>%s</b> bestätigt.', 'LL_mailer'), $subscriber_mail));
+          wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscriber_edit . urlencode($subscriber_mail));
+          exit;
+        }
+
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_delete')) {
           LL_mailer::db_delete_subscriber($subscriber_mail);
           
