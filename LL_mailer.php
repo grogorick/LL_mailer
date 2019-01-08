@@ -41,8 +41,8 @@ class LL_mailer
   const admin_page_template_edit            = LL_mailer::_ . '_templates&edit=';
   const admin_page_messages                 = LL_mailer::_ . '_messages';
   const admin_page_message_edit             = LL_mailer::_ . '_messages&edit=';
-  const admin_page_subscribers              = LL_mailer::_ . 'subscribers';
-  const admin_page_subscriber_edit          = LL_mailer::_ . 'subscribers&edit=';
+  const admin_page_subscribers              = LL_mailer::_ . '_subscribers';
+  const admin_page_subscriber_edit          = LL_mailer::_ . '_subscribers&edit=';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt|alt)="([^"]*)")?(\s+(fmt|alt)="([^"]*)")?';
   const attr_fmt_alt_html                   = ' "<i>Attribut</i>" fmt="&percnt;s" alt=""';
@@ -1918,7 +1918,7 @@ class LL_mailer
 
         else if (wp_verify_nonce($_POST['_wpnonce'], LL_mailer::_ . '_subscriber_delete')) {
           LL_mailer::db_delete_subscriber($subscriber_mail);
-          
+
           LL_mailer::message(sprintf(__('Abonnent <b>%s</b> gelöscht.', 'LL_mailer'), $subscriber_mail));
           wp_redirect(LL_mailer::admin_url() . LL_mailer::admin_page_subscribers);
           exit;
