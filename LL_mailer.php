@@ -238,7 +238,24 @@ class LL_mailer
   
   static function build_where($where)
   {
-    return LL_mailer::array_zip(' = ', LL_mailer::escape($where), ' AND ', ' WHERE ');
+    if (empty($where)) {
+      return '';
+    }
+    $ret = array();
+    foreach ($where as $key => &$value) {
+      if (is_array($value)) {
+        if (isset($value[1])) {
+          $ret[] = LL_mailer::escape_key($key) . ' ' . $value[0] . ' ' . LL_mailer::escape_value($value[1]);
+        }
+        else {
+          $ret[] = LL_mailer::escape_key($key) . ' ' . $value[0];
+        }
+      }
+      else {
+        $ret[] = LL_mailer::escape_key($key) . ' = ' . LL_mailer::escape_value($value);
+      }
+    }
+    return ' WHERE ' . implode(' AND ', $ret);
   }
   
   static function _db_build_select($table, $what, $where)
@@ -337,7 +354,7 @@ class LL_mailer
   static function db_confirm_subscriber($mail) { return LL_mailer::_db_update(LL_mailer::table_subscribers, array(), array(LL_mailer::subscriber_attribute_mail => $mail), LL_mailer::subscriber_attribute_subscribed_at); }
   static function db_delete_subscriber($mail) { return LL_mailer::_db_delete(LL_mailer::table_subscribers, array(LL_mailer::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return LL_mailer::_db_select_row(LL_mailer::table_subscribers, '*', array(LL_mailer::subscriber_attribute_mail => $mail)); }
-  static function db_get_subscribers($what) { return LL_mailer::_db_select(LL_mailer::table_subscribers, $what); }
+  static function db_get_subscribers($what, $confirmed_only = false) { return LL_mailer::_db_select(LL_mailer::table_subscribers, $what, $confirmed_only ? array(LL_mailer::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array()); }
   
   static function db_subscribers_add_attribute($attr) {
     global $wpdb;
@@ -708,7 +725,7 @@ class LL_mailer
           $from = array(LL_mailer::subscriber_attribute_mail => get_option(LL_mailer::option_sender_mail),
                         LL_mailer::subscriber_attribute_name => get_option(LL_mailer::option_sender_name));
 
-          $subscribers = LL_mailer::db_get_subscribers('*');
+          $subscribers = LL_mailer::db_get_subscribers('*', true);
           $error = array();
           foreach ($subscribers as $subscriber) {
             $tmp_subject = $subject;
