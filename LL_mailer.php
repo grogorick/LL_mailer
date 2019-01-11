@@ -1622,22 +1622,18 @@ class LL_mailer
             <select id="post" name="post">
               <option value="" style="color: gray;">(<?=__('Kein Test-Post')?>)</option>
 <?php
-            foreach ($test_posts->posts as $post) {
-              $cats = wp_get_post_categories($post->ID);
-              $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
+              foreach ($test_posts->posts as $post) {
+                $cats = wp_get_post_categories($post->ID);
+                $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
 ?>
-              <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
+                <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
 <?php
-            }
+              }
 ?>
             </select>
           </form>
-          <br />
-          <i id="<?=LL_mailer::_?>_testmail_response"></i>
-          <p>
-            <?php submit_button(__('Platzhalter in Vorschau-Feldern testen', 'LL_mailer'), '', 'replace_token_in_preview', false); ?><br />
-            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
-          </p>
+          <p class="description" id="<?=LL_mailer::_?>_testmail_response"></p>
+          <p><?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?></p>
           <script>
             new function() {
               var template_select = document.querySelector('[name="template_slug"]');
@@ -1707,12 +1703,13 @@ class LL_mailer
               var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
               var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
               var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
-              jQuery('#replace_token_in_preview').click(function (e) {
-                var btn = this;
-                btn.disabled = true;
+              function request_message_preview() {
+                testmail_to_select.disabled = true;
+                testmail_post_select.disabled = true;
                 testmail_response_tag.innerHTML = '...';
                 jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
-                  btn.disabled = false;
+                  testmail_to_select.disabled = false;
+                  testmail_post_select.disabled = false;
                   if (response.error != null) {
                     testmail_response_tag.innerHTML = response.error;
                   }
@@ -1724,17 +1721,18 @@ class LL_mailer
                     testmail_replace_dict = response.replace_dict;
                   }
                 });
-                e.preventDefault();
-              });
+              }
+              jQuery(testmail_to_select).on('input', request_message_preview);
+              jQuery(testmail_post_select).on('input', request_message_preview);
+              request_message_preview();
               jQuery('#send_testmail').click(function (e) {
-                var btn = this;
-                btn.disabled = true;
+                var select_tag = this;
+                select_tag.disabled = true;
                 testmail_response_tag.innerHTML = '...';
                 jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
-                  btn.disabled = false;
+                  select_tag.disabled = false;
                   testmail_response_tag.innerHTML = response;
                 });
-                e.preventDefault();
               });
             };
           </script>
