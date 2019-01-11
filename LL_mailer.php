@@ -1365,7 +1365,7 @@ class LL_mailer
         $message_url = LL_mailer::admin_url() . LL_mailer::admin_page_message_edit;
         if (!empty($using_messages)) {
 ?>
-          <i><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:', 'LL_mailer')?></i>
+          <p class="description"><?=__('Diese Vorlage kann nicht gelöscht werden, da sie von folgenden Nachrichten verwendet wird:', 'LL_mailer')?></p>
           <ul>
             <?=implode('<br />', array_map(function($v) use ($message_url) { return LL_mailer::list_item . ' <a href="' . $message_url . $v . '">' . $v . '</a>'; }, $using_messages))?>
           </ul>
@@ -1747,10 +1747,10 @@ class LL_mailer
 <?php
         if ($message_slug == get_option(LL_mailer::option_confirmation_msg)) {
 ?>
-          <i>
+          <p class="description">
             <?=__('Diese Nachricht kann nicht gelöscht werden, da sie für die Bestätigungs-E-Mail verwendet wird.', 'LL_mailer')?><br />
             (<a href="<?=LL_mailer::admin_url() . LL_mailer::admin_page_settings?>"><?=__('Zu den Einstellungen', 'LL_mailer')?></a>)
-          </i>
+          </p>
 <?php
         }
         else {
