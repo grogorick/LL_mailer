@@ -489,8 +489,8 @@ class LL_mailer
       $ATTR = 1;
       $html_or_text = $is_html ? 'html' : 'text';
       foreach ($matches as &$match) {
-        if (!is_null($replace_dict) && isset($replace_dict[$html_or_text][$match[$FULL]])) {
-          $replacement = $replace_dict[$html_or_text][$match[$FULL]];
+        if (!is_null($replace_dict) && isset($replace_dict['inline'][$html_or_text][$match[$FULL]])) {
+          $replacement = $replace_dict['inline'][$html_or_text][$match[$FULL]];
         }
         else {
           $attr = $match[$ATTR];
@@ -515,7 +515,7 @@ class LL_mailer
           }
 
           if (!is_null($replace_dict)) {
-            $replace_dict[$html_or_text][$match[$FULL]] = $replacement;
+            $replace_dict['inline'][$html_or_text][$match[$FULL]] = $replacement;
           }
         }
         $text = str_replace($match[$FULL], $replacement, $text);
@@ -580,8 +580,8 @@ class LL_mailer
       $CONTENT = 1;
       $html_or_text = $is_html ? 'html' : 'text';
       foreach ($matches as &$match) {
-        if (!is_null($replace_dict) && isset($replace_dict[$html_or_text][$match[$FULL]])) {
-          $replacement = $replace_dict[$html_or_text][$match[$FULL]];
+        if (!is_null($replace_dict) && isset($replace_dict['block'][$html_or_text][$match[$FULL]])) {
+          $replacement = $replace_dict['block'][$html_or_text][$match[$FULL]];
         }
         else {
           if ($is_new_post_mail) {
@@ -592,7 +592,7 @@ class LL_mailer
           }
 
           if (!is_null($replace_dict)) {
-            $replace_dict[$html_or_text][$match[$FULL]] = $replacement;
+            $replace_dict['block'][$html_or_text][$match[$FULL]] = $replacement;
           }
         }
         $text = str_replace($match[$FULL], $replacement, $text);
@@ -611,14 +611,14 @@ class LL_mailer
     $confirm_url = LL_mailer::json_url() . 'confirm-subscription?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
     $body_html = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
     $body_text = str_replace(LL_mailer::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
-    $replace_dict['html'][LL_mailer::token_CONFIRMATION_URL['pattern']] = $confirm_url;
-    $replace_dict['text'][LL_mailer::token_CONFIRMATION_URL['pattern']] = $confirm_url;
+    $replace_dict['inline']['html'][LL_mailer::token_CONFIRMATION_URL['pattern']] = $confirm_url;
+    $replace_dict['inline']['text'][LL_mailer::token_CONFIRMATION_URL['pattern']] = $confirm_url;
 
     $unsubscribe_url = LL_mailer::json_url() . 'unsubscribe?subscriber=' . urlencode(base64_encode($to[LL_mailer::subscriber_attribute_mail]));
     $body_html = str_replace(LL_mailer::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_html);
     $body_text = str_replace(LL_mailer::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_text);
-    $replace_dict['html'][LL_mailer::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
-    $replace_dict['text'][LL_mailer::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
+    $replace_dict['inline']['html'][LL_mailer::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
+    $replace_dict['inline']['text'][LL_mailer::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
 
     $attributes = array_keys(LL_mailer::get_option_array(LL_mailer::option_subscriber_attributes));
     $subject = LL_mailer::replace_token_SUBSCRIBER_ATTRIBUTE($subject, false, $to, $attributes, $replace_dict);
@@ -671,7 +671,7 @@ class LL_mailer
     }
     else return __('Keine Nachricht angegeben.', 'LL_mailer');
 
-    $replace_dict = array('html' => array(), 'text' => array());
+    $replace_dict = array();
 
     LL_mailer::prepare_mail_for_new_post_mail(!is_null($post_id), $body_html, $body_text, $replace_dict);
 
@@ -783,8 +783,8 @@ class LL_mailer
             $tmp_subject = $subject;
             $tmp_body_html = $body_html;
             $tmp_body_text = $body_text;
-            $replace_dict = array();
-            LL_mailer::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $replace_dict);
+            $tmp_replace_dict = $replace_dict;
+            LL_mailer::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
             LL_mailer::prepare_mail_inline_css($tmp_body_html);
 
             $err = LL_mailer::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text);
@@ -1563,7 +1563,6 @@ class LL_mailer
                     LL_mailer::html_prefix . $preview_body_html . LL_mailer::html_suffix
                   )?>">
                 </iframe>
-                <textarea id="<?=LL_mailer::_?>_template_body_html" style="display: none;"><?=$template_body_html?></textarea>
               </td>
             </tr>
             <tr>
@@ -1576,7 +1575,6 @@ class LL_mailer
               <td <?=LL_mailer::secondary_settings_label?>><?=__('Vorschau (Text)', 'LL_mailer')?></th>
               <td>
                 <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
-                <textarea id="<?=LL_mailer::_?>_template_body_text" style="display: none;"><?=$template_body_text?></textarea>
               </td>
             </tr>
             <tr>
@@ -1643,52 +1641,44 @@ class LL_mailer
           <script>
             new function() {
               var template_select = document.querySelector('[name="template_slug"]');
+              var testmail_replace_dict = { block : { text: [], html: [] }, inline: { text: [], html: [] } };
+              var template_body_html;
+              var template_body_text;
               var template_edit_link = document.querySelector('#LL_mailer_template_edit_link');
               var input_subject = document.querySelector('[name="subject"]');
               var preview_subject = document.querySelector('#subject_preview');
               var textarea_html = document.querySelector('[name="body_html"]');
               var textarea_text = document.querySelector('[name="body_text"]');
-              var template_body_html = document.querySelector('#LL_mailer_template_body_html');
-              var template_body_text = document.querySelector('#LL_mailer_template_body_text');
               var preview_html = document.querySelector('#body_html_preview');
               var preview_text = document.querySelector('#body_text_preview');
               var show_hide = [template_select, textarea_html, textarea_text];
-
-              var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
-              var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
-              var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
-              var testmail_replace_dict_html = {};
-              var testmail_replace_dict_text = {};
-
+              jQuery.getJSON('<?=LL_mailer::json_url()?>get?template=' + template_select.value, function (new_template) {
+                template_body_html = new_template.body_html;
+                template_body_text = new_template.body_text;
+              });
               jQuery(input_subject).on('input', function () {
                 var text = input_subject.value;
-                for (var r in testmail_replace_dict_text) {
-                  text = text.replace(r, testmail_replace_dict_text[r], 'g');
-                }
+                for (var r in testmail_replace_dict.block.text) text = text.replace(r, testmail_replace_dict.block.text[r], 'g');
+                for (var r in testmail_replace_dict.inline.text) text = text.replace(r, testmail_replace_dict.inline.text[r], 'g');
                 preview_subject.value = text;
               });
-
-              function update_preview_html(preview, template_body, textarea) {
-                var html = template_body.value.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
-                for (var r in testmail_replace_dict_html) {
-                  html = html.replace(r, testmail_replace_dict_html[r], 'g');
-                }
-                preview.contentWindow.document.body.innerHTML = html;
+              function update_preview_html() {
+                var html = template_body_html.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea_html.value, 'g');
+                for (var r in testmail_replace_dict.block.html) html = html.replace(r, testmail_replace_dict.block.html[r], 'g');
+                for (var r in testmail_replace_dict.inline.html) html = html.replace(r, testmail_replace_dict.inline.html[r], 'g');
+                preview_html.contentWindow.document.body.innerHTML = html;
               }
-
-              function update_preview_text(preview, template_body_div, textarea) {
-                var text = template_body_div.value.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea.value, 'g');
-                for (var r in testmail_replace_dict_text) {
-                  text = text.replace(r, testmail_replace_dict_text[r], 'g');
-                }
-                preview.value = text;
+              function update_preview_text() {
+                var text = template_body_text.replace('<?=LL_mailer::token_CONTENT['pattern']?>', textarea_text.value, 'g');
+                for (var r in testmail_replace_dict.block.text) text = text.replace(r, testmail_replace_dict.block.text[r], 'g');
+                for (var r in testmail_replace_dict.inline.text) text = text.replace(r, testmail_replace_dict.inline.text[r], 'g');
+                preview_text.value = text;
               }
-
               jQuery(textarea_html).on('input', function () {
-                update_preview_html(preview_html, template_body_html, textarea_html);
+                update_preview_html();
               });
               jQuery(textarea_text).on('input', function () {
-                update_preview_text(preview_text, template_body_text, textarea_text);
+                update_preview_text();
               });
               jQuery(template_select).on('input', function () {
                 if (template_select.value === '') {
@@ -1696,27 +1686,27 @@ class LL_mailer
                   template_edit_link.style.display = 'none';
                   template_body_html.value = '<?=LL_mailer::token_CONTENT['pattern']?>';
                   template_body_text.value = '<?=LL_mailer::token_CONTENT['pattern']?>';
-                  update_preview_html(preview_html, template_body_html, textarea_html);
-                  update_preview_text(preview_text, template_body_text, textarea_text);
+                  update_preview_html();
+                  update_preview_text();
                 }
                 else {
-                  for (var i = 0; i < show_hide.length; i++)
-                    show_hide[i].disabled = true;
-
+                  for (var i = 0; i < show_hide.length; i++) show_hide[i].disabled = true;
                   jQuery.getJSON('<?=LL_mailer::json_url()?>get?template=' + template_select.value, function (new_template) {
                     template_edit_link.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_template_edit?>' + encodeURI(new_template.slug);
                     template_edit_link.style.display = 'inline';
                     template_body_html.value = new_template.body_html;
                     template_body_text.value = new_template.body_text;
-                    update_preview_html(preview_html, template_body_html, textarea_html);
-                    update_preview_text(preview_text, template_body_text, textarea_text);
-
-                    for (var i = 0; i < show_hide.length; i++)
-                      show_hide[i].disabled = false;
+                    update_preview_html();
+                    update_preview_text();
+                    for (var i = 0; i < show_hide.length; i++) show_hide[i].disabled = false;
                   });
                 }
               });
 
+
+              var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
+              var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
+              var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
               jQuery('#replace_token_in_preview').click(function (e) {
                 var btn = this;
                 btn.disabled = true;
@@ -1731,8 +1721,7 @@ class LL_mailer
                     preview_subject.value = response.subject;
                     preview_html.contentWindow.document.body.innerHTML = response.html;
                     preview_text.value = response.text;
-                    testmail_replace_dict_html = response.replace_dict.html;
-                    testmail_replace_dict_text = response.replace_dict.text;
+                    testmail_replace_dict = response.replace_dict;
                   }
                 });
                 e.preventDefault();
