@@ -1905,30 +1905,33 @@ class LL_mailer
 <?php
             }
 ?>
-            <tr>
-              <th scope="row"><?=__('Abonniert am', 'LL_mailer')?></th>
-              <td>
-<?php
-                if (isset($subscriber[LL_mailer::subscriber_attribute_subscribed_at])) {
-                  echo $subscriber[LL_mailer::subscriber_attribute_subscribed_at];
-                }
-                else {
-?>
-                  <i>( <?=__('unbestätigt', 'LL_mailer')?> )</i> &nbsp;
-                  <form method="post" action="admin-post.php" style="display: inline;">
-                    <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
-                    <?php wp_nonce_field(LL_mailer::_ . '_subscriber_manual_confirm'); ?>
-                    <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
-                    <?php submit_button(__('Bestätigen (E-Mail-Link überspringen)', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
-                  </form>
-<?php
-                }
-?>
-              </td>
-            </tr>
           </table>
           <?php submit_button(__('Abonnent speichern', 'LL_mailer')); ?>
         </form>
+
+        <table class="form-table">
+          <tr>
+            <th scope="row"><?=__('Abonniert am', 'LL_mailer')?></th>
+            <td>
+              <?php
+              if (isset($subscriber[LL_mailer::subscriber_attribute_subscribed_at])) {
+                echo $subscriber[LL_mailer::subscriber_attribute_subscribed_at];
+              }
+              else {
+                ?>
+                <i>( <?=__('unbestätigt', 'LL_mailer')?> )</i> &nbsp;
+                <form method="post" action="admin-post.php" style="display: inline;">
+                  <input type="hidden" name="action" value="<?=LL_mailer::_?>_subscriber_action" />
+                  <?php wp_nonce_field(LL_mailer::_ . '_subscriber_manual_confirm'); ?>
+                  <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
+                  <?php submit_button(__('Bestätigen (E-Mail-Link überspringen)', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
+                </form>
+                <?php
+              }
+              ?>
+            </td>
+          </tr>
+        </table>
         
         <hr />
         
