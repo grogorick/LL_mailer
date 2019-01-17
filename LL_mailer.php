@@ -1050,6 +1050,7 @@ class LL_mailer
             <td>
               <input type="text" name="<?=LL_mailer::option_sender_name?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_name))?>" placeholder="Name" class="regular-text" />
               <input type="text" name="<?=LL_mailer::option_sender_mail?>" value="<?=esc_attr(get_option(LL_mailer::option_sender_mail))?>" placeholder="E-Mail" class="regular-text" />
+              &nbsp; <span id="<?=LL_mailer::option_sender_mail?>_response"></span>
             </td>
           </tr>
           
@@ -1172,6 +1173,20 @@ class LL_mailer
       <script>
         new function() {
           var timeout = {};
+          function check_sender() {
+            var mail_tag = document.querySelector('[name="<?=LL_mailer::option_sender_mail?>"]');
+            var response_tag = document.querySelector('#<?=LL_mailer::option_sender_mail?>_response');
+            function check_now() {
+              if (/\S+@\S+\.\S+/.test(mail_tag.value)) {
+                response_tag.innerHTML = '';
+              }
+              else {
+                response_tag.innerHTML = '<span style="color: red;"><?=__('E-Mail Adresse ungültig', 'LL_mailer')?></span>';
+              }
+            }
+            jQuery(mail_tag).on('input', check_now);
+            check_now();
+          }
           function check_page_exists(tag_id) {
             var page_input = document.querySelector('#' + tag_id);
             var response_tag = document.querySelector('#' + tag_id + '_response');
@@ -1207,11 +1222,19 @@ class LL_mailer
             var message_select = document.querySelector('#' + tag_id);
             var link_tag = document.querySelector('#' + tag_id + '_link');
             function link_now() {
-              link_tag.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_message_edit?>' + encodeURI(message_select.value);
+              if (message_select.value !== '') {
+                link_tag.href = '<?=LL_mailer::admin_url() . LL_mailer::admin_page_message_edit?>' + encodeURI(message_select.value);
+                link_tag.style.display = '';
+              }
+              else {
+                link_tag.href = '';
+                link_tag.style.display = 'none';
+              }
             }
             jQuery(message_select).on('input', link_now);
             link_now();
           }
+          check_sender();
           check_page_exists('<?=LL_mailer::option_subscribe_page?>');
           check_page_exists('<?=LL_mailer::option_confirmation_sent_page?>');
           check_page_exists('<?=LL_mailer::option_confirmed_page?>');
