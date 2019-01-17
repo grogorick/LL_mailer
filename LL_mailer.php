@@ -1752,30 +1752,33 @@ class LL_mailer
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
             <select id="to" name="to">
 <?php
-              foreach ($subscribers as &$subscriber) {
+            foreach ($subscribers as &$subscriber) {
 ?>
-                <option value="<?=$subscriber[LL_mailer::subscriber_attribute_mail]?>"><?=$subscriber[LL_mailer::subscriber_attribute_name] . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></option>
+              <option value="<?=$subscriber[LL_mailer::subscriber_attribute_mail]?>"><?=$subscriber[LL_mailer::subscriber_attribute_name] . ' / ' . $subscriber[LL_mailer::subscriber_attribute_mail]?></option>
 <?php
-              }
+            }
 ?>
             </select>
             <select id="post" name="post">
+<?php
+            foreach ($test_posts->posts as $post) {
+              $cats = wp_get_post_categories($post->ID);
+              $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
+?>
+              <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
+<?php
+            }
+?>
               <option value="" style="color: gray;">(<?=__('Kein Test-Post')?>)</option>
-<?php
-              foreach ($test_posts->posts as $post) {
-                $cats = wp_get_post_categories($post->ID);
-                $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
-?>
-                <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
-<?php
-              }
-?>
             </select>
+            &nbsp; <span class="description" id="<?=LL_mailer::_?>_testmail_preview_response"></span>
           </form>
-          <p class="description" id="<?=LL_mailer::_?>_testmail_response"></p>
-          <p><?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?></p>
+          <p>
+            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
+            &nbsp; <span class="description" id="<?=LL_mailer::_?>_testmail_send_response"></span>
+          </p>
           <script>
-            //new function() {
+            new function() {
               var template_select = document.querySelector('[name="template_slug"]');
               var testmail_replace_dict = { block : { text: [], html: [] }, inline: { text: [], html: [] } };
               var template_body_html;
@@ -1846,21 +1849,22 @@ class LL_mailer
               });
 
 
-              var testmail_to_select = document.querySelector('#LL_mailer_testmail #to');
-              var testmail_post_select = document.querySelector('#LL_mailer_testmail #post');
-              var testmail_response_tag = document.querySelector('#LL_mailer_testmail_response');
+              var testmail_to_select = document.querySelector('#<?=LL_mailer::_?>_testmail #to');
+              var testmail_post_select = document.querySelector('#<?=LL_mailer::_?>_testmail #post');
+              var testmail_preview_response_tag = document.querySelector('#<?=LL_mailer::_?>_testmail_preview_response');
+              var testmail_send_response_tag = document.querySelector('#<?=LL_mailer::_?>_testmail_send_response');
               function request_message_preview() {
                 testmail_to_select.disabled = true;
                 testmail_post_select.disabled = true;
-                testmail_response_tag.innerHTML = '...';
+                testmail_preview_response_tag.innerHTML = '...';
                 jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
                   testmail_to_select.disabled = false;
                   testmail_post_select.disabled = false;
                   if (response.error !== null) {
-                    testmail_response_tag.innerHTML = response.error;
+                    testmail_preview_response_tag.innerHTML = response.error;
                   }
                   else {
-                    testmail_response_tag.innerHTML = '<?=__('Vorschau aktualisiert')?>';
+                    testmail_preview_response_tag.innerHTML = '<?=__('Vorschau aktualisiert')?>';
                     preview_subject.value = response.subject;
                     preview_html.contentWindow.document.body.innerHTML = response.html;
                     preview_text.value = response.text;
@@ -1874,13 +1878,13 @@ class LL_mailer
               jQuery('#send_testmail').click(function (e) {
                 var select_tag = this;
                 select_tag.disabled = true;
-                testmail_response_tag.innerHTML = '...';
+                testmail_send_response_tag.innerHTML = '...';
                 jQuery.getJSON('<?=LL_mailer::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
                   select_tag.disabled = false;
-                  testmail_response_tag.innerHTML = response;
+                  testmail_send_response_tag.innerHTML = response;
                 });
               });
-            //};
+            };
           </script>
 <?php
         }
