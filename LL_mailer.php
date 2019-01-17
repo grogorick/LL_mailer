@@ -723,6 +723,7 @@ class LL_mailer
       require_once LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
 
       $mail = new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
+      $mail->CharSet = PHPMailer\PHPMailer\PHPMailer::CHARSET_UTF8;
 
       $mail->isSendmail();
       $mail->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
