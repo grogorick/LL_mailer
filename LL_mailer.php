@@ -3,14 +3,18 @@
 Plugin Name:  LL_mailer
 Plugin URI:   https://linda-liest.de/
 Description:  New Post Notification Mail
-Version:      1
-Author:       Steve
-Author URI:   https://linda-liest.de/
+Version:      1.0
+Author:       Steve Grogorick
+Author URI:   https://grogorick.de/
 License:      Unlicense
 License URI:  https://unlicense.org/
 */
 
-if (!defined('ABSPATH')) { header('Location: https://linda-liest.de/'); exit; }
+if (!defined('ABSPATH')) {
+  echo '<html><body><span style="font-size: 100vh; font-family: monospace; color: #eee; position: absolute; bottom: 0;">404</span></body></html>';
+  http_response_code(404);
+  exit;
+}
 
 
 
