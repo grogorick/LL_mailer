@@ -431,8 +431,8 @@ class LL_mailer
     
     LL_mailer::message('Optionen initialisiert.');
     
-     
-    // register_uninstall_hook(__FILE__, LL_mailer::_('uninstall'));
+
+    register_uninstall_hook(__FILE__, LL_mailer::_('uninstall'));
   }
   
   static function uninstall()
@@ -2240,7 +2240,6 @@ class LL_mailer
     add_action('admin_notices', LL_mailer::_('admin_notices'));
 
     register_activation_hook(__FILE__, LL_mailer::_('activate'));
-    register_deactivation_hook(__FILE__, LL_mailer::_('uninstall'));
 
     add_action('transition_post_status', LL_mailer::_('post_status_transition'), 10, 3);
 
