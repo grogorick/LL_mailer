@@ -99,6 +99,8 @@ class LL_mailer
   
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
+
+  static $phpmailer = null;
   
   
   
@@ -543,7 +545,7 @@ class LL_mailer
             return array('', '');
         }
         else
-          return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein Abonnenten Attribut', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr) . ')');
+          return array(null, '(' . sprintf(__('Fehler in %s: Abonnenten Attribut "%s" existiert nicht oder ist für diesen Abonnenten nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr) . ')');
       }, $replace_dict);
   }
 
@@ -556,7 +558,7 @@ class LL_mailer
         else {
           switch ($attr) {
             case 'url': return array(home_url(user_trailingslashit($post->post_name)), '');
-            default: return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein WP_Post Attribut', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr) . ')');
+            default: return array(null, '(' . sprintf(__('Fehler in %s: WP_Post Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
           }
         }
       }, $replace_dict);
@@ -569,7 +571,7 @@ class LL_mailer
         if (metadata_exists('post', $post->ID, $attr))
           return array(get_post_meta($post->ID, $attr, true), '');
         else
-          return array(null, '(' . sprintf(__('Fehler in %s: "%s" ist kein Post-Meta Attribut von Post "%s"', 'LL_mailer'), '<code>' . htmlentities($found_token) . '</code>', $attr, $post->post_title) . ')');
+          return array(null, '(' . sprintf(__('Fehler in %s: Post-Meta Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
       }, $replace_dict);
   }
 
@@ -722,29 +724,35 @@ class LL_mailer
     }
 
     try {
-      require_once LL_mailer::pluginPath() . 'phpmailer/Exception.php';
-      require_once LL_mailer::pluginPath() . 'phpmailer/PHPMailer.php';
-      require_once LL_mailer::pluginPath() . 'phpmailer/SMTP.php';
+      // (Re)create it, if it's gone missing
+      if (is_null(LL_mailer::$phpmailer)) {
+        require_once ABSPATH . WPINC . '/class-phpmailer.php';
+        require_once ABSPATH . WPINC . '/class-smtp.php';
+        LL_mailer::$phpmailer = new PHPMailer(true /* enable exceptions */);
 
-      $mail = new PHPMailer\PHPMailer\PHPMailer(true /* enable exceptions */);
-      $mail->CharSet = PHPMailer\PHPMailer\PHPMailer::CHARSET_UTF8;
+        LL_mailer::$phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
+      }
 
-      $mail->isSendmail();
-      $mail->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
-      $mail->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
+      LL_mailer::$phpmailer->isSendmail();
+      LL_mailer::$phpmailer->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
+      LL_mailer::$phpmailer->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
 
-      // $mail->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
+      // LL_mailer::$phpmailer->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
 
-      $mail->isHTML(true);
-      $mail->Subject = utf8_decode($subject);
-      $mail->Body = utf8_decode($body_html);
-      $mail->AltBody = utf8_decode($body_text);
+      LL_mailer::$phpmailer->isHTML(true);
+      LL_mailer::$phpmailer->Subject = utf8_decode($subject);
+      LL_mailer::$phpmailer->Body = utf8_decode($body_html);
+      LL_mailer::$phpmailer->AltBody = utf8_decode($body_text);
 
-      $success = $mail->send();
+      $success = LL_mailer::$phpmailer->send();
       return $success ? false : __('Nachricht nicht gesendet. Fehler: PHPMailer hat ein Problem.', 'LL_mailer');
 
-    } catch (PHPMailer\PHPMailer\Exception $e) {
-      return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $mail->ErrorInfo;
+    }
+    catch (phpmailerException $e) {
+      return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . LL_mailer::$phpmailer->ErrorInfo;
+    }
+    catch (Exception $e) {
+      return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $e->getMessage();
     }
   }
   

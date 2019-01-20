@@ -27,5 +27,4 @@
   - Subscriber attributes
 
 ###### Used third-party libs
-- PHPMailer ([GitHub](https://github.com/PHPMailer/PHPMailer))
 - cssin ([GitHub](https://github.com/djfm/cssin))
