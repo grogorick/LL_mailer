@@ -28,3 +28,8 @@
 
 ###### Used third-party libs
 - [cssin](https://github.com/djfm/cssin) for automatic CSS inlining
+
+###### Screenshots
+![Settings](docs/screenshot_edit_message.png)
+![Settings](docs/screenshot_edit_template.png)
+![Settings](docs/screenshot_settings.png)
