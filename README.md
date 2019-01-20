@@ -27,4 +27,4 @@
   - Subscriber attributes
 
 ###### Used third-party libs
-- cssin ([GitHub](https://github.com/djfm/cssin))
+- [cssin](https://github.com/djfm/cssin) for automatic CSS inlining
