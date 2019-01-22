@@ -78,7 +78,7 @@ class LL_mailer
                                                     'example' => array('[POST "post_title"]',
                                                                        '[POST "post_excerpt" alt="&lt;i&gt;Kein Auszug verfügbar&lt;/i&gt;"]')
                                                     );
-  const token_POST_META                     = array('pattern' => '/\[POST_META' . LL_mailer::attr_fmt_alt . ']/',
+  const token_POST_META                     = array('pattern' => '/\[POST_META' . LL_mailer::attr_fmt_alt . '\]/',
                                                     'html'    => '[POST_META' . LL_mailer::attr_fmt_alt_html . ']',
                                                     'filter'  => LL_mailer::_ . '_POST_META_attribute',
                                                     'example' => array('[POST_META "plugin-post-meta-key"]',
@@ -99,8 +99,6 @@ class LL_mailer
   
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
-
-  static $phpmailer = null;
   
   
   
@@ -724,32 +722,31 @@ class LL_mailer
     }
 
     try {
-      // (Re)create it, if it's gone missing
-      if (is_null(LL_mailer::$phpmailer)) {
-        require_once ABSPATH . WPINC . '/class-phpmailer.php';
-        require_once ABSPATH . WPINC . '/class-smtp.php';
-        LL_mailer::$phpmailer = new PHPMailer(true /* enable exceptions */);
+      require_once ABSPATH . WPINC . '/class-phpmailer.php';
+      require_once ABSPATH . WPINC . '/class-smtp.php';
+      $phpmailer = new PHPMailer(true /* enable exceptions */);
 
-        LL_mailer::$phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
+//      $phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
+
+      $phpmailer->isSendmail();
+      $phpmailer->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
+      $phpmailer->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
+
+      $phpmailer->isHTML(true);
+      $phpmailer->Subject = utf8_decode($subject);
+      $phpmailer->Body = utf8_decode($body_html);
+      $phpmailer->AltBody = utf8_decode($body_text);
+
+      foreach ($attachments as $cid => $url) {
+        $phpmailer->addEmbeddedImage($url, $cid);
       }
 
-      LL_mailer::$phpmailer->isSendmail();
-      LL_mailer::$phpmailer->setFrom($from[LL_mailer::subscriber_attribute_mail], $from[LL_mailer::subscriber_attribute_name]);
-      LL_mailer::$phpmailer->addAddress($to[LL_mailer::subscriber_attribute_mail], $to[LL_mailer::subscriber_attribute_name]);
-
-      // LL_mailer::$phpmailer->addEmbeddedImage('img/2u_cs_mini.jpg', 'logo_2u');
-
-      LL_mailer::$phpmailer->isHTML(true);
-      LL_mailer::$phpmailer->Subject = utf8_decode($subject);
-      LL_mailer::$phpmailer->Body = utf8_decode($body_html);
-      LL_mailer::$phpmailer->AltBody = utf8_decode($body_text);
-
-      $success = LL_mailer::$phpmailer->send();
+      $success = $phpmailer->send();
       return $success ? false : __('Nachricht nicht gesendet. Fehler: PHPMailer hat ein Problem.', 'LL_mailer');
 
     }
     catch (phpmailerException $e) {
-      return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . LL_mailer::$phpmailer->ErrorInfo;
+      return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $phpmailer->ErrorInfo;
     }
     catch (Exception $e) {
       return __('Nachricht nicht gesendet. Fehler: ', 'LL_mailer') . $e->getMessage();
