@@ -84,6 +84,10 @@ class LL_mailer
                                                     'example' => array('[POST_META "plugin-post-meta-key"]',
                                                                        '[POST_META "genre" fmt="Genre: %s&lt;br /&gt;" alt=""]')
                                                     );
+  const token_ATTACH                        = array('pattern' => '/\[ATTACH\s+"([^"]+)"\]/',
+                                                    'html'    => '[ATTACH "<i>Image-URL</i>"]',
+                                                    'example' => array('[ATTACH "/wp-content/uploads/2019/01/some_image.jpg"]')
+                                                    );
                                               
   const shortcode_SUBSCRIPTION_FORM         = array('code'    => 'LL_mailer_SUBSCRIPTION_FORM',
                                                     'html'    => '[LL_mailer_SUBSCRIPTION_FORM html_attr=""]'
@@ -116,6 +120,8 @@ class LL_mailer
   }
   
   static function is_predefined_subscriber_attribute($attr) { return in_array($attr, array(self::subscriber_attribute_mail, self::subscriber_attribute_name)); }
+
+  static function make_cid($i) { return 'cid:attachment' . $i; }
 
   static function msg_id_new_post_published($post_id) { return 'new-post-published-' . $post_id; }
   static function msg_id_new_subscriber($subscriber_mail) { return 'new-subscriber-' . base64_encode($subscriber_mail); }
@@ -615,6 +621,36 @@ class LL_mailer
     $body_text = self::replace_token_IN_NEW_POST_MAIL($body_text, $is_new_post_mail, false, $replace_dict);
   }
 
+  static function prepare_mail_attachments(&$body_html, $is_preview, &$replace_dict)
+  {
+    $attachments = array();
+    preg_match_all(self::token_ATTACH['pattern'], $body_html, $matches, PREG_SET_ORDER);
+    if (!empty($matches)) {
+      $FULL = 0;
+      $CONTENT = 1;
+      foreach ($matches as &$match) {
+        if (!is_null($replace_dict) && isset($replace_dict['inline']['html'][$match[$FULL]])) {
+          $replacement = $replace_dict['inline']['html'][$match[$FULL]];
+        }
+        else {
+          if ($is_preview) {
+            $replacement = $match[$CONTENT];
+          }
+          else {
+            $replacement = self::make_cid(count($attachments));
+          }
+          $attachments[$replacement] = $match[$CONTENT];
+
+          if (!is_null($replace_dict)) {
+            $replace_dict['inline']['html'][$match[$FULL]] = $replacement;
+          }
+        }
+        $body_html = str_replace($match[$FULL], $replacement, $body_html);
+      }
+    }
+    return $attachments;
+  }
+
   static function prepare_mail_for_receiver($to, &$subject, &$body_html, &$body_text, &$replace_dict)
   {
     $confirm_url = self::json_url() . 'confirm-subscription?subscriber=' . urlencode(base64_encode($to[self::subscriber_attribute_mail]));
@@ -663,7 +699,7 @@ class LL_mailer
     $body_html = preg_replace('/\\s\\s+/i', ' ', $body_html);
   }
 
-  static function prepare_mail($msg, $to = null, $post_id = null, $apply_template = true, $inline_css = true)
+  static function prepare_mail($msg, $to /* email | null */, $post_id /* ID | null */, $apply_template /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
   {
     if (isset($msg)) {
       if (is_string($msg)) {
@@ -702,11 +738,16 @@ class LL_mailer
       $post = self::prepare_mail_for_post($post_id, $subject, $body_html, $body_text, $replace_dict);
     }
 
+    $attachments = array();
+    if ($find_and_replace_attachments !== false) {
+      $attachments = self::prepare_mail_attachments($body_html, $find_and_replace_attachments === 'preview', $replace_dict);
+    }
+
     if ($inline_css) {
       self::prepare_mail_inline_css($body_html);
     }
 
-    return array($to, $subject, $body_html, $body_text, $replace_dict, $post);
+    return array($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post);
   }
 
   static function get_sender()
@@ -715,7 +756,7 @@ class LL_mailer
                  self::subscriber_attribute_name => get_option(self::option_sender_name));
   }
 
-  static function send_mail($from, $to, $subject, $body_html, $body_text)
+  static function send_mail($from, $to, $subject, $body_html, $body_text, $attachments)
   {
     if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
     {
@@ -739,7 +780,7 @@ class LL_mailer
       $phpmailer->AltBody = utf8_decode($body_text);
 
       foreach ($attachments as $cid => $url) {
-        $phpmailer->addEmbeddedImage($url, $cid);
+        $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
       }
 
       $success = $phpmailer->send();
@@ -756,15 +797,15 @@ class LL_mailer
   
   static function prepare_and_send_mail($msg_slug, $to, $post_id = null, $receiver_mail_if_different_from_subscriber_mail = null)
   {
-    $mail_or_error = LL_mailer::prepare_mail($msg_slug, $to, $post_id, true, true);
+    $mail_or_error = self::prepare_mail($msg_slug, $to, $post_id, true, true, true);
     if (is_string($mail_or_error)) return $mail_or_error;
-    list($to, $subject, $body_html, $body_text) = $mail_or_error;
+    list($to, $subject, $body_html, $body_text, $attachments) = $mail_or_error;
 
     if (!is_null($receiver_mail_if_different_from_subscriber_mail)) {
       $to = $receiver_mail_if_different_from_subscriber_mail;
     }
 
-    return LL_mailer::send_mail(LL_mailer::get_sender(), $to, $subject, $body_html, $body_text);
+    return self::send_mail(self::get_sender(), $to, $subject, $body_html, $body_text, $attachments);
   }
   
   static function testmail($request)
@@ -787,11 +828,12 @@ class LL_mailer
         $request['to'],
         $request['post'] ?: null,
         true,
-        false);
+        false,
+        'preview');
       if (is_string($mail_or_error)) return array('error' => $mail_or_error);
       else {
-        list($to, $subject, $body_html, $body_text, $replace_dict) = $mail_or_error;
-        return array('subject' => $subject, 'html' => $body_html, 'text' => $body_text, 'replace_dict' => $replace_dict, 'error' => null);
+        list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
+        return array('subject' => $subject, 'html' => $body_html, 'text' => $body_text, 'attachments' => $attachments, 'replace_dict' => $replace_dict, 'error' => null);
       }
     }
     return null;
@@ -803,9 +845,9 @@ class LL_mailer
       switch ($request['to']) {
         case 'all':
           $msg = get_option(self::option_new_post_msg);
-          $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false);
+          $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false);
           if (is_string($mail_or_error)) return $mail_or_error;
-          list($to, $subject, $body_html, $body_text, $replace_dict, $post) = $mail_or_error;
+          list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post) = $mail_or_error;
 
           $from = self::get_sender();
 
@@ -818,8 +860,9 @@ class LL_mailer
             $tmp_replace_dict = $replace_dict;
             self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
             self::prepare_mail_inline_css($tmp_body_html);
+            $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
 
-            $err = self::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text);
+            $err = self::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_attachments);
             if ($err) $error[] = $err;
           }
           if (!empty($error)) return "Fehler: " . implode('<br />', $error);
@@ -2202,7 +2245,7 @@ class LL_mailer
 <?php
     }
 ?>
-        <tr><td></td><td><input type="submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" class="Button" <?=$atts['button_attr'] ?: ''?> /></td></tr>
+        <tr><td></td><td><input type="submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> /></td></tr>
       </table>
     </form>
 <?php
