@@ -104,6 +104,8 @@ class LL_mailer
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
   
+  static $error = ['replace_token' => 0];
+  
   
   
 	static function _($member_function) { return array(self::_, $member_function); }
@@ -126,6 +128,7 @@ class LL_mailer
   static function msg_id_new_post_published($post_id) { return 'new-post-published-' . $post_id; }
   static function msg_id_new_subscriber($subscriber_mail) { return 'new-subscriber-' . base64_encode($subscriber_mail); }
   static function msg_id_lost_subscriber($subscriber_mail) { return 'lost-subscriber-' . base64_encode($subscriber_mail); }
+  static function msg_id_new_post_mail_failed($msg_id, $post_id) { return 'new-post-mail-failed-' . $msg_id . '-' . $post_id . '-' . time(); }
 
 
   
@@ -542,14 +545,13 @@ class LL_mailer
   {
     return self::replace_token_using_fmt_and_alt($text, $is_html, self::token_SUBSCRIBER_ATTRIBUTE, $post,
       function(&$attr, &$found_token) use($to, $attributes) {
-        if (in_array($attr, $attributes)) {
-          if (isset($to[$attr]) && !empty($to[$attr]))
-            return array($to[$attr], '');
-          else
-            return array('', '');
+        if (in_array($attr, $attributes) && isset($to[$attr]) && !empty($to[$attr])) {
+          return array($to[$attr], '');
         }
-        else
+        else {
+          self::$error['replace_token']++;
           return array(null, '(' . sprintf(__('Fehler in %s: Abonnenten Attribut "%s" existiert nicht oder ist für diesen Abonnenten nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr) . ')');
+        }
       }, $replace_dict);
   }
 
@@ -562,7 +564,9 @@ class LL_mailer
         else {
           switch ($attr) {
             case 'url': return array(home_url(user_trailingslashit($post->post_name)), '');
-            default: return array(null, '(' . sprintf(__('Fehler in %s: WP_Post Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
+            default:
+              self::$error['replace_token']++;
+              return array(null, '(' . sprintf(__('Fehler in %s: WP_Post Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
           }
         }
       }, $replace_dict);
@@ -574,8 +578,10 @@ class LL_mailer
       function(&$attr, &$found_token) use($post) {
         if (metadata_exists('post', $post->ID, $attr))
           return array(get_post_meta($post->ID, $attr, true), '');
-        else
+        else {
+          self::$error['replace_token']++;
           return array(null, '(' . sprintf(__('Fehler in %s: Post-Meta Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
+        }
       }, $replace_dict);
   }
 
@@ -760,7 +766,7 @@ class LL_mailer
   {
     if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
     {
-      return _('Nachricht nicht gesendet. Fehler: Absender-Name oder E-Mail wurden in den Einstellungen von ' . self::_ . ' nicht angegeben.', 'LL_mailer');
+      return __('Nachricht nicht gesendet. Absender-Name oder E-Mail wurden in den Einstellungen nicht angegeben.', 'LL_mailer');
     }
 
     try {
@@ -783,8 +789,8 @@ class LL_mailer
         $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
       }
 
-      $success = $phpmailer->send();
-      return $success ? false : __('Nachricht nicht gesendet. Fehler: PHPMailer hat ein Problem.', 'LL_mailer');
+      $success = true;//$phpmailer->send();
+      return ($success && !$phpmailer->isError()) ? false : sprintf(__('Nachricht nicht gesendet. PHPMailer Fehler: %s', 'LL_mailer'), $phpmailer->ErrorInfo);
 
     }
     catch (phpmailerException $e) {
@@ -845,30 +851,64 @@ class LL_mailer
       switch ($request['to']) {
         case 'all':
           $msg = get_option(self::option_new_post_msg);
-          $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false);
-          if (is_string($mail_or_error)) return $mail_or_error;
-          list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post) = $mail_or_error;
-
-          $from = self::get_sender();
-
-          $subscribers = self::db_get_subscribers('*', true);
-          $error = array();
-          foreach ($subscribers as $subscriber) {
-            $tmp_subject = $subject;
-            $tmp_body_html = $body_html;
-            $tmp_body_text = $body_text;
-            $tmp_replace_dict = $replace_dict;
-            self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
-            self::prepare_mail_inline_css($tmp_body_html);
-            $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
-
-            $err = self::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_attachments);
-            if ($err) $error[] = $err;
+          $errors = [];
+          $txt_goto_message = __('Zur Nachricht', 'LL_mailer');
+          $edit_url = self::admin_url() . self::admin_page_message_edit . $msg;
+          if (!$msg) {
+            $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
           }
-          if (!empty($error)) return "Fehler: " . implode('<br />', $error);
-          self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', count($subscribers)));
-          self::hide_message(self::msg_id_new_post_published($post->ID));
-          wp_redirect(self::get_post_edit_url($post->ID));
+          else {
+            $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false);
+            if (is_string($mail_or_error)) {
+              $errors[] = $mail_or_error;
+            }
+            if (self::$error['replace_token']) {
+              $errors[] = sprintf(__('Die Nachricht enthält %d Platzhalter-Fehler.', 'LL_mailer'), self::$error['replace_token']) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für alle Abonnenten <b>abgebrochen</b>.', 'LL_mailer');
+            }
+            if (empty($errors)) {
+              list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post) = $mail_or_error;
+
+              $from = self::get_sender();
+              if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
+              {
+                $errors[] = __('Nachricht(en) nicht gesendet. Absender-Name oder E-Mail wurden in den Einstellungen nicht angegeben.', 'LL_mailer');
+              }
+              else {
+
+                $subscribers = self::db_get_subscribers('*', true);
+                $token_errors = [];
+                foreach ($subscribers as $subscriber) {
+                  $tmp_subject = $subject;
+                  $tmp_body_html = $body_html;
+                  $tmp_body_text = $body_text;
+                  $tmp_replace_dict = $replace_dict;
+                  self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
+                  self::prepare_mail_inline_css($tmp_body_html);
+                  $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
+
+                  if (self::$error['replace_token']) {
+                    $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')';
+                    self::$error['replace_token'] = 0;
+                  }
+                  else {
+                    $err = self::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_attachments);
+                    if ($err) $errors[] = $err;
+                  }
+                }
+                if (!empty($token_errors)) {
+                  $errors[] = sprintf(__('Die Nachricht enthält Abonnenten-Platzhalter-Fehler.', 'LL_mailer'), $token_errors[0]) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') . implode("<br />", $token_errors);
+                }
+              }
+            }
+          }
+          if (!empty($errors)) {
+            self::message("Fehler: " . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
+          }
+          else {
+            self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', count($subscribers)));
+            self::hide_message(self::msg_id_new_post_published($post->ID));
+          }
+          wp_redirect(wp_get_referer());
           exit;
 
         default:
@@ -2284,12 +2324,12 @@ class LL_mailer
     add_action('admin_post_' . self::_ . '_template_action', self::_('admin_page_template_action'));
     add_action('admin_post_' . self::_ . '_message_action', self::_('admin_page_message_action'));
     add_action('admin_post_' . self::_ . '_subscriber_action', self::_('admin_page_subscriber_action'));
-    
-    
+
+
     add_shortcode(self::shortcode_SUBSCRIPTION_FORM['code'], self::_('shortcode_SUBSCRIPTION_FORM'));
     add_shortcode(self::shortcode_SUBSCRIBER_ATTRIBUTE['code'], self::_('shortcode_SUBSCRIBER_ATTRIBUTE'));
-    
-    
+
+
     add_action('admin_notices', self::_('admin_notices'));
 
     register_activation_hook(__FILE__, self::_('activate'));
