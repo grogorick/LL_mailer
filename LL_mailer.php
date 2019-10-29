@@ -789,7 +789,7 @@ class LL_mailer
         $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
       }
 
-      $success = true;//$phpmailer->send();
+      $success = $phpmailer->send();
       return ($success && !$phpmailer->isError()) ? false : sprintf(__('Nachricht nicht gesendet. PHPMailer Fehler: %s', 'LL_mailer'), $phpmailer->ErrorInfo);
 
     }
@@ -1065,32 +1065,21 @@ class LL_mailer
       }
     </style>
     <table class="<?=self::_?>_token_table">
-      <tr><td colspan=2><?=__('In allen E-Mails:', 'LL_mailer')?></td></tr>
-      <tr>
-        <td><?=self::list_item?></td>
-        <td><code><?=self::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
-        <td>
-          <?=sprintf(__('Abonnenten-Attribut aus den Einstellungen (%s), z.B. %s', 'LL_mailer'),
-            '<a href="' . self::admin_url() . self::admin_page_settings . '" target="_blank">?</a>',
-            '<code>' . implode('</code>, <code>', self::token_SUBSCRIBER_ATTRIBUTE['example']) . '</code>')?>
-        </td>
-      </tr>
-
       <tr><td colspan=2><?=__('In Neuer-Post E-Mails:', 'LL_mailer')?></td></tr>
       <tr>
         <td><?=self::list_item?></td>
         <td><code><?=self::token_POST_ATTRIBUTE['html']?></code></td>
         <td>
-          <?=sprintf(__('WP_Post Attribute (%s), z.B. %s', 'LL_mailer'),
+          <?=sprintf(__('WP_Post Attribute (%s), z.B. %s.', 'LL_mailer'),
             '<a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">?</a>',
             '<code>' . implode('</code>, <code>', self::token_POST_ATTRIBUTE['example']) . '</code>')?>
-          <p><?=__('Zusätzlich verfügbare Attribute', 'LL_mailer')?>: <code>"url"</code></p>
+          <p><?=__('Zusätzlich verfügbare Attribute: ', 'LL_mailer')?><code>"url"</code></p>
         </td>
       </tr><tr>
         <td><?=self::list_item?></td>
         <td><code><?=self::token_POST_META['html']?></code></td>
         <td>
-          <?=sprintf(__('Individuelle Post-Metadaten (%s), z.B. %s', 'LL_mailer'),
+          <?=sprintf(__('Individuelle Post-Metadaten (%s), z.B. %s.', 'LL_mailer'),
             '<a href="https://codex.wordpress.org/Custom_Fields" target="_blank">?</a>',
             '<code>' . implode('</code>, <code>', self::token_POST_META['example']) . '</code>')?>
         </td>
@@ -1098,15 +1087,35 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code><?=self::token_IN_NEW_POST_MAIL['html']?></code></td>
         <td>
-          <?=__('Ein Textbereich, der nur in E-Mails zu neuen Posts enthalten sein soll, z.B. für einen Abmelden-Link', 'LL_mailer')?>
+          <?=__('Ein Textbereich, der nur in E-Mails zu neuen Posts enthalten sein soll, z.B. für einen Abmelden-Link.', 'LL_mailer')?>
         </td>
       </tr>
 
-      <tr><td colspan=2><?=__('In Willkommen E-Mails:', 'LL_mailer')?></td></tr>
+      <tr><td colspan=2><?=__('In allen E-Mails:', 'LL_mailer')?></td></tr>
       <tr>
         <td><?=self::list_item?></td>
+        <td><code><?=self::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
+        <td>
+          <?=sprintf(__('Abonnenten-Attribut aus den Einstellungen (%s), z.B. %s.', 'LL_mailer'),
+            '<a href="' . self::admin_url() . self::admin_page_settings . '" target="_blank">?</a>',
+            '<code>' . implode('</code>, <code>', self::token_SUBSCRIBER_ATTRIBUTE['example']) . '</code>')?>
+        </td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
+        <td><code><?=self::token_ATTACH['html']?></code></td>
+        <td>
+          <?=sprintf(__('Bild (URL) als Anhang einbetten, z.B. %s.', 'LL_mailer'),
+            '<code>' . implode('</code>, <code>', self::token_ATTACH['example']) . '</code>')?>
+          <p><?=__('(Wird in vielen E-Mail Programmen leider nicht angezeigt)', 'LL_mailer')?></p>
+        </td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
         <td><code><?=self::token_CONFIRMATION_URL['html']?></code></td>
-        <td><?=__('URL für Bestätigungs-Link', 'LL_mailer')?></td>
+        <td><?=__('URL für Bestätigungs-Link bei der Anmeldung zum Abo.', 'LL_mailer')?></td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
+        <td><code><?=self::token_UNSUBSCRIBE_URL['html']?></code></td>
+        <td><?=__('URL zur Abmeldung vom Abo.', 'LL_mailer')?></td>
       </tr>
     </table>
 <?php
