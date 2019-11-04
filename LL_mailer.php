@@ -531,6 +531,10 @@ class LL_mailer
             $replacement = $error;
           }
 
+          if ($is_html) {
+            $replacement = nl2br($replacement);
+          }
+
           if (!is_null($replace_dict)) {
             $replace_dict['inline'][$html_or_text][$match[$FULL]] = $replacement;
           }
@@ -774,16 +778,16 @@ class LL_mailer
       require_once ABSPATH . WPINC . '/class-smtp.php';
       $phpmailer = new PHPMailer(true /* enable exceptions */);
 
-//      $phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
+      $phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
 
       $phpmailer->isSendmail();
       $phpmailer->setFrom($from[self::subscriber_attribute_mail], $from[self::subscriber_attribute_name]);
       $phpmailer->addAddress($to[self::subscriber_attribute_mail], $to[self::subscriber_attribute_name]);
 
       $phpmailer->isHTML(true);
-      $phpmailer->Subject = utf8_decode($subject);
-      $phpmailer->Body = utf8_decode($body_html);
-      $phpmailer->AltBody = utf8_decode($body_text);
+      $phpmailer->Subject = $subject;
+      $phpmailer->Body = $body_html;
+      $phpmailer->AltBody = $body_text;
 
       foreach ($attachments as $cid => $url) {
         $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
