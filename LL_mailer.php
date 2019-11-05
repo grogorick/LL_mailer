@@ -123,7 +123,7 @@ class LL_mailer
   
   static function is_predefined_subscriber_attribute($attr) { return in_array($attr, array(self::subscriber_attribute_mail, self::subscriber_attribute_name)); }
 
-  static function make_cid($i) { return 'cid:attachment' . $i; }
+  static function make_cid($i) { return 'attachment.' . $i . '@' . $_SERVER["SERVER_NAME"]; }
 
   static function msg_id_new_post_published($post_id) { return 'new-post-published-' . $post_id; }
   static function msg_id_new_subscriber($subscriber_mail) { return 'new-subscriber-' . base64_encode($subscriber_mail); }
@@ -655,7 +655,7 @@ class LL_mailer
             $replace_dict['inline']['html'][$match[$FULL]] = $replacement;
           }
         }
-        $body_html = str_replace($match[$FULL], $replacement, $body_html);
+        $body_html = str_replace($match[$FULL], 'cid:' . $replacement, $body_html);
       }
     }
     return $attachments;
@@ -778,7 +778,8 @@ class LL_mailer
       require_once ABSPATH . WPINC . '/class-smtp.php';
       $phpmailer = new PHPMailer(true /* enable exceptions */);
 
-      $phpmailer->CharSet = 'UTF-8'; // PHPMailer::CHAREST_UTF8;
+      $phpmailer->CharSet = 'utf-8'; // PHPMailer::CHAREST_UTF8;
+//      $phpmailer->Encoding = 'quoted-printable';
 
       $phpmailer->isSendmail();
       $phpmailer->setFrom($from[self::subscriber_attribute_mail], $from[self::subscriber_attribute_name]);
