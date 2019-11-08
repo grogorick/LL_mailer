@@ -34,6 +34,9 @@ class LL_mailer
   const option_unsubscribed_admin_msg       = self::_ . '_unsubscribed_admin_msg';
   const option_unsubscribed_page            = self::_ . '_unsubscribed_page';
   const option_new_post_msg                 = self::_ . '_new_post_msg';
+  const option_recaptcha_website_key        = self::_ . '_recaptcha_website_key';
+  const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
+  const option_recaptcha_min_score          = self::_ . '_recaptcha_min_score';
 
   const subscriber_attribute_mail           = 'mail';
   const subscriber_attribute_name           = 'name';
@@ -123,7 +126,7 @@ class LL_mailer
   
   static function is_predefined_subscriber_attribute($attr) { return in_array($attr, array(self::subscriber_attribute_mail, self::subscriber_attribute_name)); }
 
-  static function make_cid($i) { return 'attachment.' . $i . '@' . $_SERVER["SERVER_NAME"]; }
+  static function make_cid($i) { return 'attachment.' . $i . '@' . $_SERVER['SERVER_NAME']; }
 
   static function msg_id_new_post_published($post_id) { return 'new-post-published-' . $post_id; }
   static function msg_id_new_subscriber($subscriber_mail) { return 'new-subscriber-' . base64_encode($subscriber_mail); }
@@ -467,6 +470,9 @@ class LL_mailer
     delete_option(self::option_unsubscribed_admin_msg);
     delete_option(self::option_unsubscribed_page);
     delete_option(self::option_new_post_msg);
+    delete_option(self::option_recaptcha_website_key);
+    delete_option(self::option_recaptcha_secret_key);
+    delete_option(self::option_recaptcha_min_score);
   }
 
 
@@ -933,7 +939,7 @@ class LL_mailer
       self::db_confirm_subscriber($subscriber_mail);
 
       $admin_notification_msg = get_option(self::option_confirmed_admin_msg);
-      if (!is_null($admin_notification_msg)) {
+      if ($admin_notification_msg !== false) {
         $admin_mail = self::get_sender();
         $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, null, $admin_mail);
         if ($error !== false) {
@@ -947,7 +953,7 @@ class LL_mailer
       self::message(sprintf(__('%s hat sich für das E-Mail Abo angemeldet.', 'LL_mailer'), '<b>' . $display . '</b>'), self::msg_id_new_subscriber($subscriber_mail));
 
       $confirmed_page = get_option(self::option_confirmed_page);
-      if (!is_null($confirmed_page)) {
+      if ($confirmed_page !== false) {
         wp_redirect(get_permalink(get_page_by_path($confirmed_page)) . '?subscriber=' . urlencode(base64_encode($subscriber_mail)));
       }
       else {
@@ -960,6 +966,29 @@ class LL_mailer
   static function subscribe($request)
   {
     if (!empty($_POST) && isset($_POST[self::subscriber_attribute_mail]) && !empty($_POST[self::subscriber_attribute_mail])) {
+
+      $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
+      $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
+      if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false && isset($_POST['recaptcha_token']) && !empty($_POST['recaptcha_token'])) {
+        $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(['http' => [
+          'method' => 'POST',
+          'content' => http_build_query([
+            'secret' => $recaptcha_secret_key,
+            'response' => $_POST['recaptcha_token']
+          ])]]));
+        $recaptcha_result = json_decode($recaptcha_result);
+        $recaptcha_min_score = get_option(self::option_recaptcha_min_score, '0.5');
+        if (!$recaptcha_result->success || strtolower($recaptcha_result->hostname) != strtolower($_SERVER['SERVER_NAME']) || $recaptcha_result->action != 'abo_subscribe' || $recaptcha_result->score < $recaptcha_min_score) {
+          $subscribe_page = get_option(self::option_subscribe_page);
+          if ($subscribe_page !== false) {
+            wp_redirect(get_permalink(get_page_by_path($subscribe_page)));
+          }
+          else {
+            wp_redirect(home_url());
+          }
+        }
+      }
+      
       $attributes = self::get_option_array(self::option_subscriber_attributes);
       $new_subscriber = array();
       foreach ($attributes as $attr => $attr_label) {
@@ -971,11 +1000,11 @@ class LL_mailer
       self::db_add_subscriber($new_subscriber);
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
-      if (!is_null($confirmation_msg)) {
+      if ($confirmation_msg !== false) {
         $error = self::prepare_and_send_mail($confirmation_msg, $new_subscriber[self::subscriber_attribute_mail]);
         if ($error === false) {
           $confirmation_sent_page = get_option(self::option_confirmation_sent_page);
-          if (!is_null($confirmation_sent_page)) {
+          if ($confirmation_sent_page !== false) {
             wp_redirect(get_permalink(get_page_by_path($confirmation_sent_page)) . '?subscriber=' . urlencode(base64_encode($new_subscriber[self::subscriber_attribute_mail])));
           }
           else {
@@ -991,7 +1020,13 @@ class LL_mailer
         self::confirm_subscriber($new_subscriber[self::subscriber_attribute_mail]);
       }
     }
-    wp_redirect(get_permalink(get_page_by_path(get_option(self::option_subscribe_page))));
+    $subscribe_page = get_option(self::option_subscribe_page);
+    if ($subscribe_page !== false) {
+      wp_redirect(get_permalink(get_page_by_path($subscribe_page)));
+    }
+    else {
+      wp_redirect(home_url());
+    }
     exit;
   }
   
@@ -1001,7 +1036,13 @@ class LL_mailer
       $subscriber_mail = base64_decode(urldecode($_GET['subscriber']));
       self::confirm_subscriber($subscriber_mail);
     }
-    wp_redirect(get_permalink(get_page_by_path(get_option(self::option_subscribe_page))));
+    $subscribe_page = get_option(self::option_subscribe_page);
+    if ($subscribe_page !== false) {
+      wp_redirect(get_permalink(get_page_by_path($subscribe_page)));
+    }
+    else {
+      wp_redirect(home_url());
+    }
     exit;
   }
 
@@ -1013,7 +1054,7 @@ class LL_mailer
       if (!is_null($existing_subscriber)) {
 
         $admin_notification_msg = get_option(self::option_unsubscribed_admin_msg);
-        if (!is_null($admin_notification_msg)) {
+        if ($admin_notification_msg !== false) {
           $admin_mail = self::get_sender();
           $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, null, $admin_mail);
           if ($error !== false) {
@@ -1029,7 +1070,7 @@ class LL_mailer
         self::message(sprintf(__('%s hat das E-Mail Abo abgemeldet.', 'LL_mailer'), '<b>' . $display . '</b>'), self::msg_id_lost_subscriber($subscriber_mail));
 
         $unsubscribed_page = get_option(self::option_unsubscribed_page);
-        if (!is_null($unsubscribed_page)) {
+        if ($unsubscribed_page !== false) {
           wp_redirect(get_permalink(get_page_by_path($unsubscribed_page)));
         }
         else {
@@ -1277,6 +1318,31 @@ class LL_mailer
               <a id="<?=self::option_unsubscribed_admin_msg?>_link" href="<?=self::admin_url() . self::admin_page_message_edit . urlencode($selected_msg)?>">(<?=__('Zur Nachricht', 'LL_mailer')?>)</a>
             </td>
           </tr>
+
+          <tr>
+            <th scope="row" style="padding-bottom: 0;"><?=__('reCAPTCHA für Anmeldung', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?> colspan="2">(<?=__('Beide Schlüssel eintragen zum Aktivieren', 'LL_mailer')?>)</td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('Webseitenschlüssel', 'LL_mailer')?></td>
+            <td>
+              <input type="text" name="<?=self::option_recaptcha_website_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_website_key))?>" placeholder="Code" class="regular-text" />
+            </td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('Geheimer Schlüssel', 'LL_mailer')?></td>
+            <td>
+              <input type="text" name="<?=self::option_recaptcha_secret_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_secret_key))?>" placeholder="Code" class="regular-text" />
+            </td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('Minimum Score', 'LL_mailer')?></td>
+            <td>
+              <input type="text" step="0.01" name="<?=self::option_recaptcha_min_score?>" value="<?=esc_attr(get_option(self::option_recaptcha_min_score))?>" placeholder="0.5" class="regular-text" />
+            </td>
+          </tr>
         </table>
         <?php submit_button(); ?>
       </form>
@@ -1437,6 +1503,9 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_unsubscribed_admin_msg);
     register_setting(self::_ . '_general', self::option_unsubscribed_page);
     register_setting(self::_ . '_general', self::option_new_post_msg);
+    register_setting(self::_ . '_general', self::option_recaptcha_website_key);
+    register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
+    register_setting(self::_ . '_general', self::option_recaptcha_min_score);
   }
 
   static function admin_page_settings_action()
@@ -2303,6 +2372,25 @@ class LL_mailer
 ?>
         <tr><td></td><td><input type="submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> /></td></tr>
       </table>
+<?php
+    $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
+    $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
+    if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false) {
+?>
+      <input type="hidden" name="recaptcha_token" id="recaptcha_token" />
+      <script src="https://www.google.com/recaptcha/api.js?render=<?=$recaptcha_website_key?>"></script>
+      <script>
+        var refreshReCaptchaToken = function() {
+          grecaptcha.execute('<?=$recaptcha_website_key?>', {action: 'abo_subscribe'}).then(function(token) {
+            document.getElementById('recaptcha_token').value = token;
+            setTimeout(refreshReCaptchaToken, (2*60 -10) * 1000);
+          });
+        };
+        grecaptcha.ready(refreshReCaptchaToken);
+      </script>
+<?php
+    }
+?>
     </form>
 <?php
     return ob_get_clean();
