@@ -655,7 +655,10 @@ class LL_mailer
             $replace_dict['inline']['html'][$match[$FULL]] = $replacement;
           }
         }
-        $body_html = str_replace($match[$FULL], 'cid:' . $replacement, $body_html);
+        if (!$is_preview) {
+          $replacement = 'cid:' . $replacement;
+        }
+        $body_html = str_replace($match[$FULL], $replacement, $body_html);
       }
     }
     return $attachments;
@@ -1111,7 +1114,6 @@ class LL_mailer
         <td>
           <?=sprintf(__('Bild (URL) als Anhang einbetten, z.B. %s.', 'LL_mailer'),
             '<code>' . implode('</code>, <code>', self::token_ATTACH['example']) . '</code>')?>
-          <p><?=__('(Wird in vielen E-Mail Programmen leider nicht angezeigt)', 'LL_mailer')?></p>
         </td>
       </tr><tr>
         <td><?=self::list_item?></td>
@@ -1574,7 +1576,7 @@ class LL_mailer
               <td <?=self::secondary_settings_label?>><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
-                    self::html_prefix . $template['body_html'] . self::html_suffix
+                    self::html_prefix . preg_replace(self::token_ATTACH['pattern'], '$1', $template['body_html']) . self::html_suffix
                   )?>">
                 </iframe>
               </td>
@@ -1599,7 +1601,7 @@ class LL_mailer
           new function() {
             var preview = document.querySelector('#body_html_preview');
             jQuery('[name="body_html"]').on('input', function () {
-              preview.contentWindow.document.body.innerHTML = this.value;
+              preview.contentWindow.document.body.innerHTML = this.value.replace(<?=self::token_ATTACH['pattern']?>g, '$1');
             });
           };
         </script>
