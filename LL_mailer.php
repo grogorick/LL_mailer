@@ -2189,6 +2189,9 @@ class LL_mailer
 <?php
           $subscribers = self::db_get_subscribers('*');
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
+          usort($subscribers, function($a, $b) {
+            return (intval(empty($b['subscribed_at'])) - intval(empty($a['subscribed_at']))) ?: strcmp(strtolower($a[self::subscriber_attribute_mail]), strtolower($b[self::subscriber_attribute_mail]));
+          });
           foreach ($subscribers as &$subscriber) {
 ?>
             <?=self::list_item?> <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
