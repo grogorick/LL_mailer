@@ -27,7 +27,7 @@ class LL_mailer
   const option_sender_mail                  = self::_ . '_sender_mail';
   const option_subscriber_attributes        = self::_ . '_subscriber_attributes';
   const option_subscribe_page               = self::_ . '_subscribe_page';
-  const option_confirmation_sent_page       = self::_ . '_confirmation_sent_page';
+  const option_form_submitted_page          = self::_ . '_form_submitted_page';
   const option_confirmation_msg             = self::_ . '_confirmation_msg';
   const option_confirmed_admin_msg          = self::_ . '_confirmed_admin_msg';
   const option_confirmed_page               = self::_ . '_confirmed_page';
@@ -37,10 +37,12 @@ class LL_mailer
   const option_recaptcha_website_key        = self::_ . '_recaptcha_website_key';
   const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
   const option_recaptcha_min_score          = self::_ . '_recaptcha_min_score';
+  const option_use_robot_check              = self::_ . '_use_robot_check';
 
   const subscriber_attribute_mail           = 'mail';
   const subscriber_attribute_name           = 'name';
   const subscriber_attribute_subscribed_at  = 'subscribed_at';
+  const subscriber_attribute_meta           = 'meta';
 
   const table_templates                     = self::_ . '_templates';
   const table_messages                      = self::_ . '_messages';
@@ -99,6 +101,7 @@ class LL_mailer
                                                     'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]'
                                                     );
   
+  const user_msg = self::_ . '_usermsg';
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -241,7 +244,7 @@ class LL_mailer
   
   static function escape_value($value)
   {
-    return '"' . $value . '"';
+    return '"' . str_replace('"', '\\"', $value) . '"';
   }
   
   static function escape_values($values)
@@ -375,8 +378,15 @@ class LL_mailer
   // subscribers
   // - mail
   // - subscribed_at
+  // - meta
   // [...]
-  static function db_add_subscriber($subscriber) { return self::_db_insert(self::table_subscribers, $subscriber); }
+  static function db_add_subscriber($subscriber) {
+    $subscriber[self::subscriber_attribute_meta] = json_encode(array(
+      'submitted_at' => time(),
+      'ip' => ($_SERVER['HTTP_CLIENT_IP'] ?? ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR']))
+    ));
+	  return self::_db_insert(self::table_subscribers, $subscriber);
+	}
   static function db_update_subscriber($subscriber, $old_mail) { return self::_db_update(self::table_subscribers, $subscriber, array(self::subscriber_attribute_mail => $old_mail)); }
   static function db_confirm_subscriber($mail) { return self::_db_update(self::table_subscribers, array(), array(self::subscriber_attribute_mail => $mail), self::subscriber_attribute_subscribed_at); }
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
@@ -435,6 +445,7 @@ class LL_mailer
         `' . self::subscriber_attribute_mail . '` varchar(100) NOT NULL,
         `' . self::subscriber_attribute_name . '` TEXT NULL DEFAULT NULL,
         `' . self::subscriber_attribute_subscribed_at . '` datetime NULL DEFAULT NULL,
+        `' . self::subscriber_attribute_meta . '` TEXT NULL DEFAULT NULL,
         PRIMARY KEY (`' . self::subscriber_attribute_mail . '`)
       ) ' . $wpdb->get_charset_collate() . ';') ? 'OK' : $wpdb->last_error);
     
@@ -463,7 +474,7 @@ class LL_mailer
     delete_option(self::option_sender_mail);
     delete_option(self::option_subscriber_attributes);
     delete_option(self::option_subscribe_page);
-    delete_option(self::option_confirmation_sent_page);
+    delete_option(self::option_form_submitted_page);
     delete_option(self::option_confirmation_msg);
     delete_option(self::option_confirmed_admin_msg);
     delete_option(self::option_confirmed_page);
@@ -473,6 +484,7 @@ class LL_mailer
     delete_option(self::option_recaptcha_website_key);
     delete_option(self::option_recaptcha_secret_key);
     delete_option(self::option_recaptcha_min_score);
+    delete_option(self::option_use_robot_check);
   }
 
 
@@ -957,7 +969,13 @@ class LL_mailer
         wp_redirect(get_permalink(get_page_by_path($confirmed_page)) . '?subscriber=' . urlencode(base64_encode($subscriber_mail)));
       }
       else {
-        wp_redirect(home_url());
+        $subscribe_page = get_option(self::option_subscribe_page);
+        if ($subscribe_page !== false) {
+          wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg . '=' . urlencode(base64_encode(__('Deine Anmeldung war erfolgreich.', 'LL_mailer'))));
+        }
+        else {
+          wp_redirect(home_url());
+        }
       }
       exit;
     }
@@ -965,35 +983,49 @@ class LL_mailer
   
   static function subscribe($request)
   {
-    if (!empty($_POST) && isset($_POST[self::subscriber_attribute_mail]) && !empty($_POST[self::subscriber_attribute_mail])) {
+    if (!empty($_POST) && isset($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail]) && !empty($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail])) {
+
+      if (get_option(self::option_use_robot_check)) {
+        if (!isset($_POST[self::_ . '_robot_check']) || !isset($_POST[self::_ . '_robot_check_2']) || $_POST[self::_ . '_robot_check'] != $_POST[self::_ . '_robot_check_2']) {
+          $subscribe_page = get_option(self::option_subscribe_page);
+          if ($subscribe_page !== false) {
+            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Deine Antwort passt nicht zur Sicherheitsfrage.', 'LL_mailer'))));
+          }
+          else {
+            wp_redirect(home_url());
+          }
+          exit;
+        }
+      }
 
       $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
       $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
-      if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false && isset($_POST['recaptcha_token']) && !empty($_POST['recaptcha_token'])) {
+      if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false && isset($_POST[self::_ . '_recaptcha_token']) && !empty($_POST[self::_ . '_recaptcha_token'])) {
         $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(['http' => [
           'method' => 'POST',
           'content' => http_build_query([
             'secret' => $recaptcha_secret_key,
-            'response' => $_POST['recaptcha_token']
+            'response' => $_POST[self::_ . '_recaptcha_token']
           ])]]));
         $recaptcha_result = json_decode($recaptcha_result);
         $recaptcha_min_score = get_option(self::option_recaptcha_min_score, '0.5');
         if (!$recaptcha_result->success || strtolower($recaptcha_result->hostname) != strtolower($_SERVER['SERVER_NAME']) || $recaptcha_result->action != 'abo_subscribe' || $recaptcha_result->score < $recaptcha_min_score) {
           $subscribe_page = get_option(self::option_subscribe_page);
           if ($subscribe_page !== false) {
-            wp_redirect(get_permalink(get_page_by_path($subscribe_page)));
+            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Unser Test sagt, dass die Anmeldung automatisiert ausgefüllt wurde.', 'LL_mailer'))));
           }
           else {
             wp_redirect(home_url());
           }
+          exit;
         }
       }
       
       $attributes = self::get_option_array(self::option_subscriber_attributes);
       $new_subscriber = array();
       foreach ($attributes as $attr => $attr_label) {
-        if (!empty($_POST[$attr])) {
-          $new_subscriber[$attr] = $_POST[$attr];
+        if (!empty($_POST[self::_ . '_attr_' . $attr])) {
+          $new_subscriber[$attr] = $_POST[self::_ . '_attr_' . $attr];
         }
       }
       
@@ -1003,12 +1035,18 @@ class LL_mailer
       if ($confirmation_msg !== false) {
         $error = self::prepare_and_send_mail($confirmation_msg, $new_subscriber[self::subscriber_attribute_mail]);
         if ($error === false) {
-          $confirmation_sent_page = get_option(self::option_confirmation_sent_page);
+          $confirmation_sent_page = get_option(self::option_form_submitted_page);
           if ($confirmation_sent_page !== false) {
             wp_redirect(get_permalink(get_page_by_path($confirmation_sent_page)) . '?subscriber=' . urlencode(base64_encode($new_subscriber[self::subscriber_attribute_mail])));
           }
           else {
-            wp_redirect(home_url());
+            $subscribe_page = get_option(self::option_subscribe_page);
+            if ($subscribe_page !== false) {
+              wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg .'=' . urlencode(base64_encode(__('Du erhältst in diesem Moment eine E-Mail. Bitte nutze den Link darin, um deine Anmeldung zu bestätigen.', 'LL_mailer'))));
+            }
+            else {
+              wp_redirect(home_url());
+            }
           }
           exit;
         }
@@ -1085,10 +1123,11 @@ class LL_mailer
   
   static function post_status_transition($new_status, $old_status, $post)
   {
-    if ($new_status == 'publish' && $old_status != 'publish') {
-      self::message(sprintf(__('Du hast den Post %s veröffentlicht.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>') .
-                         ' &nbsp; <a href="' . self::json_url() . 'new-post-mail?to=all&post=' . $post->ID . '">' . __('Jetzt E-Mail Abonnenten informieren', 'LL_mailer') . '</a>',
-                         self::msg_id_new_post_published($post->ID));
+    if ($post->post_type == 'post' && $new_status == 'publish' && $old_status != 'publish' && get_option(self::option_new_post_msg) !== false) {
+      self::message(
+        sprintf(__('Du hast den Post %s veröffentlicht.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>') .
+          ' &nbsp; <a href="' . self::json_url() . 'new-post-mail?to=all&post=' . $post->ID . '">' . __('E-Mails an Abonnenten jetzt senden', 'LL_mailer') . '</a>',
+        self::msg_id_new_post_published($post->ID));
     }
   }
 
@@ -1129,7 +1168,7 @@ class LL_mailer
         <td><code><?=self::token_POST_META['html']?></code></td>
         <td>
           <?=sprintf(__('Individuelle Post-Metadaten (%s), z.B. %s.', 'LL_mailer'),
-            '<a href="https://codex.wordpress.org/Custom_Fields" target="_blank">?</a>',
+            '<a href="https://wordpress.org/support/article/custom-fields/" target="_blank">?</a>',
             '<code>' . implode('</code>, <code>', self::token_POST_META['example']) . '</code>')?>
         </td>
       </tr><tr>
@@ -1196,54 +1235,89 @@ class LL_mailer
       <form method="post" action="options.php">
         <?php settings_fields(self::_ . '_general'); ?>
         <table class="form-table">
+
           <tr>
             <th scope="row"><?=__('Absender', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_sender_name?>" title="<?=__('Dein Name, der als Absender der E-Mails genutzt werden soll', 'LL_mailer')?>">
+                <?=__('Name', 'LL_mailer')?></label>
+            </td>
             <td>
-              <input type="text" name="<?=self::option_sender_name?>" value="<?=esc_attr(get_option(self::option_sender_name))?>" placeholder="Name" class="regular-text" />
-              <input type="text" name="<?=self::option_sender_mail?>" value="<?=esc_attr(get_option(self::option_sender_mail))?>" placeholder="E-Mail" class="regular-text" />
+              <input type="text" id="<?=self::option_sender_name?>" name="<?=self::option_sender_name?>" value="<?=esc_attr(get_option(self::option_sender_name))?>" placeholder="Name" class="regular-text" />
+            </td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_sender_mail?>" title="<?=__('Deine E-Mail Adresse, die als Absender der E-Mails genutzt werden soll', 'LL_mailer')?>">
+                <?=__('E-Mail Adresse', 'LL_mailer')?></label>
+            </td>
+            <td>
+              <input type="text" id="<?=self::option_sender_mail?>" name="<?=self::option_sender_mail?>" value="<?=esc_attr(get_option(self::option_sender_mail))?>" placeholder="...@<?=$_SERVER['SERVER_NAME']?>" class="regular-text" />
               &nbsp; <span id="<?=self::option_sender_mail?>_response"></span>
             </td>
           </tr>
-          
+
+          <tr><td colspan="2"><hr /></td></tr>
+
           <tr>
-            <th scope="row" style="padding-bottom: 0;"><?=__('Blog-Seiten', 'LL_mailer')?></th>
+            <th scope="row" colspan="2"><?=__('Blogseiten', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Den Blog abonnieren', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_subscribe_page?>" title="<?=__('Die Blogseite, auf der Besucher sich einschreiben können', 'LL_mailer')?>">
+                <?=__('Den Blog abonnieren', 'LL_mailer')?></label>
+            </td>
             <td>
               <input type="text" id="<?=self::option_subscribe_page?>" name="<?=self::option_subscribe_page?>" value="<?=esc_attr(get_option(self::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=self::option_subscribe_page?>_response"></span>
-              <p class="description"><?=sprintf(__('Nutze <code>%s</code> um ein Anmelde-Formular anzuzeigen', 'LL_mailer'), self::shortcode_SUBSCRIPTION_FORM['html'])?></p>
+              <p class="description"><?=sprintf(__('Nutze <code>%s</code> um das Anmeldeformular einzufügen.', 'LL_mailer'), self::shortcode_SUBSCRIPTION_FORM['html'])?></p>
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Bestätigungs-E-Mail gesendet', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_form_submitted_page?>" title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie das Anmeldeformular abgeschickt haben', 'LL_mailer')?>">
+                <?=__('Anmeldung abgeschickt', 'LL_mailer')?></label>
+            </td>
             <td>
-              <input type="text" id="<?=self::option_confirmation_sent_page?>" name="<?=self::option_confirmation_sent_page?>" value="<?=esc_attr(get_option(self::option_confirmation_sent_page))?>" placeholder="Seite" class="regular-text" />
-              &nbsp; <span id="<?=self::option_confirmation_sent_page?>_response"></span>
+              <input type="text" id="<?=self::option_form_submitted_page?>" name="<?=self::option_form_submitted_page?>" value="<?=esc_attr(get_option(self::option_form_submitted_page))?>" placeholder="Seite" class="regular-text" />
+              &nbsp; <span id="<?=self::option_form_submitted_page?>_response"></span>
+              <p class="description"><?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen.', 'LL_mailer'), self::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?></p>
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('E-Mail bestätigt', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?> title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie ihr E-Mail Adresse bestätigt haben', 'LL_mailer')?>">
+              <label for="<?=self::option_confirmed_page?>">
+                <?=__('E-Mail bestätigt', 'LL_mailer')?></label>
+            </td>
             <td>
               <input type="text" id="<?=self::option_confirmed_page?>" name="<?=self::option_confirmed_page?>" value="<?=esc_attr(get_option(self::option_confirmed_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=self::option_confirmed_page?>_response"></span>
-              <p class="description"><?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen', 'LL_mailer'), self::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?></p>
+              <p class="description"><?=sprintf(__('Nutze <code>%s</code> um Attribute des neuen Abonnenten auf der Seite anzuzeigen.', 'LL_mailer'), self::shortcode_SUBSCRIBER_ATTRIBUTE['html'])?></p>
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Abo abgemeldet', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_unsubscribed_page?>" title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie sich abgemeldet haben', 'LL_mailer')?>">
+                <?=__('Abo abgemeldet', 'LL_mailer')?></label>
+            </td>
             <td>
               <input type="text" id="<?=self::option_unsubscribed_page?>" name="<?=self::option_unsubscribed_page?>" value="<?=esc_attr(get_option(self::option_unsubscribed_page))?>" placeholder="Seite" class="regular-text" />
               &nbsp; <span id="<?=self::option_unsubscribed_page?>_response"></span>
             </td>
           </tr>
+
+          <tr><td colspan="2"><hr /></td></tr>
           
           <tr>
-            <th scope="row" style="padding-bottom: 0;"><?=__('E-Mails an Abonnenten', 'LL_mailer')?></th>
+            <th scope="row" colspan="2"><?=__('E-Mails an Abonnenten', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Bestätigungs-E-Mail', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_confirmation_msg?>" title="<?=__('Die Nachricht, die Abonnenten erhalten sollen, um ihre Anmeldung zu bestätigen', 'LL_mailer')?>">
+                <?=__('Anmeldung bestätigen', 'LL_mailer')?></label>
+            </td>
             <td>
               <select id="<?=self::option_confirmation_msg?>" name="<?=self::option_confirmation_msg?>">
                 <option value="">--</option>
@@ -1258,10 +1332,17 @@ class LL_mailer
               </select>
               &nbsp;
               <a id="<?=self::option_confirmation_msg?>_link" href="<?=self::admin_url() . self::admin_page_message_edit . urlencode($selected_msg)?>">(<?=__('Zur Nachricht', 'LL_mailer')?>)</a>
+              <p class="description">
+                <?=__('Wird aktiviert, sobald eine Nachricht ausgewählt ist', 'LL_mailer')?><br />
+                <?=sprintf(__('Nutze <code>%s</code> um den Bestätigungs-Link einzufügen.', 'LL_mailer'), self::token_CONFIRMATION_URL['html'])?>
+              </p>
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Neuer-Post-E-Mail', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_new_post_msg?>" title="<?=__('Die Nachricht, die Abonnenten erhalten sollen, wenn du einen neuen Post veröffentlichst', 'LL_mailer')?>">
+                <?=__('Neuer Post', 'LL_mailer')?></label>
+            </td>
             <td>
               <select id="<?=self::option_new_post_msg?>" name="<?=self::option_new_post_msg?>">
                 <option value="">--</option>
@@ -1279,11 +1360,15 @@ class LL_mailer
             </td>
           </tr>
 
+          <tr><td colspan="2"><hr /></td></tr>
+
           <tr>
-            <th scope="row" style="padding-bottom: 0;"><?=__('E-Mails an dich', 'LL_mailer')?></th>
+            <th scope="row" colspan="2"><?=__('E-Mails an dich (Absender)', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Neuer Abonnent', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_confirmed_admin_msg?>"><?=__('Neuer Abonnent', 'LL_mailer')?></label>
+            </td>
             <td>
               <select id="<?=self::option_confirmed_admin_msg?>" name="<?=self::option_confirmed_admin_msg?>">
                 <option value="">--</option>
@@ -1301,7 +1386,9 @@ class LL_mailer
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Abonnent abgemeldet', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_unsubscribed_admin_msg?>"><?=__('Abonnent abgemeldet', 'LL_mailer')?></label>
+            </td>
             <td>
               <select id="<?=self::option_unsubscribed_admin_msg?>" name="<?=self::option_unsubscribed_admin_msg?>">
                 <option value="">--</option>
@@ -1319,28 +1406,49 @@ class LL_mailer
             </td>
           </tr>
 
+          <tr><td colspan="2"><hr /></td></tr>
+
           <tr>
-            <th scope="row" style="padding-bottom: 0;"><?=__('reCAPTCHA für Anmeldung', 'LL_mailer')?></th>
+            <th scope="row" colspan="2"><?=__('Spam-Erkennung für die Anmeldung (Variante 1)', 'LL_mailer')?></th>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?> colspan="2">(<?=__('Beide Schlüssel eintragen zum Aktivieren', 'LL_mailer')?>)</td>
-          </tr>
-          <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Webseitenschlüssel', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_use_robot_check?>"><?=__('Frage anzeigen', 'LL_mailer')?></label>
+            </td>
             <td>
-              <input type="text" name="<?=self::option_recaptcha_website_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_website_key))?>" placeholder="Code" class="regular-text" />
+              <input type="checkbox" id="<?=self::option_use_robot_check?>" name="<?=self::option_use_robot_check?>" <?=get_option(self::option_use_robot_check) ? 'checked' : ''?> />
+            </td>
+          </tr>
+
+          <tr>
+            <th scope="row" colspan="2"><?=__('Spam-Erkennung für die Anmeldung (Variante 2)', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td>reCAPTCHA v3 (Google)</td>
+            <td <?=self::secondary_settings_label?>><?=__('Wird aktiviert, sobald beide Schlüssel eingetragen sind', 'LL_mailer')?></td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_recaptcha_website_key?>"><?=__('Webseitenschlüssel', 'LL_mailer')?></label>
+            </td>
+            <td>
+              <input type="text" id="<?=self::option_recaptcha_website_key?>" name="<?=self::option_recaptcha_website_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_website_key))?>" placeholder="Code" class="regular-text" />
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Geheimer Schlüssel', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_recaptcha_secret_key?>"><?=__('Geheimer Schlüssel', 'LL_mailer')?></label>
+            </td>
             <td>
-              <input type="text" name="<?=self::option_recaptcha_secret_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_secret_key))?>" placeholder="Code" class="regular-text" />
+              <input type="text" id="<?=self::option_recaptcha_secret_key?>" name="<?=self::option_recaptcha_secret_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_secret_key))?>" placeholder="Code" class="regular-text" />
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>><?=__('Minimum Score', 'LL_mailer')?></td>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_recaptcha_min_score?>"><?=__('Minimum Score', 'LL_mailer')?></label>
+            </td>
             <td>
-              <input type="text" step="0.01" name="<?=self::option_recaptcha_min_score?>" value="<?=esc_attr(get_option(self::option_recaptcha_min_score))?>" placeholder="0.5" class="regular-text" />
+              <input type="text" step="0.01" id="<?=self::option_recaptcha_min_score?>" name="<?=self::option_recaptcha_min_score?>" value="<?=esc_attr(get_option(self::option_recaptcha_min_score))?>" placeholder="0.5" class="regular-text" />
             </td>
           </tr>
         </table>
@@ -1412,7 +1520,7 @@ class LL_mailer
           }
           check_sender();
           check_page_exists('<?=self::option_subscribe_page?>');
-          check_page_exists('<?=self::option_confirmation_sent_page?>');
+          check_page_exists('<?=self::option_form_submitted_page?>');
           check_page_exists('<?=self::option_confirmed_page?>');
           check_page_exists('<?=self::option_unsubscribed_page?>');
           link_message('<?=self::option_confirmation_msg?>');
@@ -1496,7 +1604,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_sender_name);
     register_setting(self::_ . '_general', self::option_sender_mail);
     register_setting(self::_ . '_general', self::option_subscribe_page);
-    register_setting(self::_ . '_general', self::option_confirmation_sent_page);
+    register_setting(self::_ . '_general', self::option_form_submitted_page);
     register_setting(self::_ . '_general', self::option_confirmation_msg);
     register_setting(self::_ . '_general', self::option_confirmed_admin_msg);
     register_setting(self::_ . '_general', self::option_confirmed_page);
@@ -1506,6 +1614,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_recaptcha_website_key);
     register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
     register_setting(self::_ . '_general', self::option_recaptcha_min_score);
+    register_setting(self::_ . '_general', self::option_use_robot_check);
   }
 
   static function admin_page_settings_action()
@@ -1591,7 +1700,7 @@ class LL_mailer
           <?php wp_nonce_field(self::_ . '_template_add'); ?>
           <table class="form-table">
             <tr>
-            <th scope="row"><?=__('Slug für neue Vorlage', 'LL_mailer')?></th>
+            <th scope="row"><?=__('Name für neue Vorlage', 'LL_mailer')?></th>
             <td>
               <input type="text" name="template_slug" placeholder="<?=__('meine-vorlage', 'LL_mailer')?>" class="regular-text" /> &nbsp;
               <?php submit_button(__('Neue Vorlage anlegen', 'LL_mailer'), 'primary', '', false); ?>
@@ -1603,18 +1712,25 @@ class LL_mailer
         <hr />
         
         <h1><?=__('Gespeicherte Vorlagen', 'LL_mailer')?></h1>
-        
-        <p>
+        <p></p>
+        <table class="wp-list-table widefat fixed striped">
+          <tr>
+            <th><?=__('Name', 'LL_mailer')?></th>
+            <th><?=__('Zuletzt bearbeitet', 'LL_mailer')?></th>
+          </tr>
 <?php
           $templates = self::db_get_templates(array('slug', 'last_modified'));
           $edit_url = self::admin_url() . self::admin_page_template_edit;
           foreach ($templates as &$template) {
 ?>
-            <?=self::list_item?> <a href="<?=$edit_url . $template['slug']?>"><b><?=$template['slug']?></b></a> &nbsp; <span style="color: gray;">( <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $template['last_modified']?> )</span><br />
+            <tr>
+              <td><a href="<?=$edit_url . $template['slug']?>" class="row-title"><?=$template['slug']?></a></td>
+              <td><?=$template['last_modified']?></td>
+            </tr>
 <?php
           }
 ?>
-        </p>
+        </table>
 <?php
       } break;
       
@@ -1780,7 +1896,7 @@ class LL_mailer
           <?php wp_nonce_field(self::_ . '_message_add'); ?>
           <table class="form-table">
             <tr>
-            <th scope="row"><?=__('Slug für neue Nachricht', 'LL_mailer')?></th>
+            <th scope="row"><?=__('Name für neue Nachricht', 'LL_mailer')?></th>
             <td>
               <input type="text" name="message_slug" placeholder="<?=__('meine-nachricht', 'LL_mailer')?>" class="regular-text" /> &nbsp;
               <?php submit_button(__('Neue Nachricht anlegen', 'LL_mailer'), 'primary', '', false); ?>
@@ -1792,20 +1908,29 @@ class LL_mailer
         <hr />
         
         <h1><?=__('Gespeicherte Nachrichten', 'LL_mailer')?></h1>
-        
-        <p>
+        <p></p>
+        <table class="wp-list-table widefat fixed striped">
+          <tr>
+            <th><?=__('Name', 'LL_mailer')?></th>
+            <th><?=__('Betreff', 'LL_mailer')?></th>
+            <th><?=__('Vorlage', 'LL_mailer')?></th>
+            <th><?=__('Zuletzt bearbeitet', 'LL_mailer')?></th>
+          </tr>
 <?php
           $messages = self::db_get_messages(array('slug', 'subject', 'template_slug', 'last_modified'));
           $edit_url = self::admin_url() . self::admin_page_message_edit;
           foreach ($messages as &$message) {
 ?>
-            <?=self::list_item?> <a href="<?=$edit_url . urlencode($message['slug'])?>"><b><?=$message['slug']?></b></a> &nbsp; 
-            <?=$message['subject'] ?: '<i>(kein Betreff)</i>'?> &nbsp; 
-            <span style="color: gray;">( <?=$message['template_slug']?> &mdash; <?=__('zuletzt bearbeitet: ', 'LL_mailer') . $message['last_modified']?> )</span><br />
+            <tr>
+              <td><a href="<?=$edit_url . urlencode($message['slug'])?>" class="row-title"><?=$message['slug']?></a></td>
+              <td><a href="<?=$edit_url . urlencode($message['slug'])?>"><?=$message['subject'] ?: '<i>(kein Betreff)</i>'?></a></td>
+              <td><?=$message['template_slug']?></td>
+              <td><?=$message['last_modified']?></td>
+            </tr>
 <?php
           }
 ?>
-        </p>
+        </table>
 <?php
       } break;
       
@@ -2074,10 +2199,24 @@ class LL_mailer
         <h1><?=__('Löschen', 'LL_mailer')?></h1>
         
 <?php
+        $msg_in_use_error = false;
         if ($message_slug == get_option(self::option_confirmation_msg)) {
+          $msg_in_use_error = __('Diese Nachricht kann nicht gelöscht werden, da sie als Bestätigungs-E-Mail verwendet wird.', 'LL_mailer');
+        }
+        else if ($message_slug == get_option(self::option_new_post_msg)) {
+          $msg_in_use_error = __('Diese Nachricht kann nicht gelöscht werden, da sie als Benachrichtigung für neue Posts verwendet wird.', 'LL_mailer');
+        }
+        else if ($message_slug == get_option(self::option_confirmed_admin_msg)) {
+          $msg_in_use_error = __('Diese Nachricht kann nicht gelöscht werden, da sie als Benachrichtigung (an dich) für neue Abonnenten verwendet wird.', 'LL_mailer');
+        }
+        else if ($message_slug == get_option(self::option_unsubscribed_admin_msg)) {
+          $msg_in_use_error = __('Diese Nachricht kann nicht gelöscht werden, da sie als Benachrichtigung (an dich) für abgemeldete Abonnenten verwendet wird.', 'LL_mailer');
+        }
+
+        if ($msg_in_use_error !== false) {
 ?>
           <p class="description">
-            <?=__('Diese Nachricht kann nicht gelöscht werden, da sie für die Bestätigungs-E-Mail verwendet wird.', 'LL_mailer')?><br />
+            <?=$msg_in_use_error?><br />
             (<a href="<?=self::admin_url() . self::admin_page_settings?>"><?=__('Zu den Einstellungen', 'LL_mailer')?></a>)
           </p>
 <?php
@@ -2184,26 +2323,54 @@ class LL_mailer
         <hr />
         
         <h1><?=__('Gespeicherte Abonnenten', 'LL_mailer')?></h1>
-        
-        <p>
+        <p></p>
+        <table class="wp-list-table widefat fixed striped">
+          <tr>
+            <th><?=__('Name', 'LL_mailer')?></th>
+            <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
+            <th><?=__('Anmeldung am', 'LL_mailer')?></th>
+          </tr>
 <?php
           $subscribers = self::db_get_subscribers('*');
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
           usort($subscribers, function($a, $b) {
             return (intval(empty($b['subscribed_at'])) - intval(empty($a['subscribed_at']))) ?: strcmp(strtolower($a[self::subscriber_attribute_mail]), strtolower($b[self::subscriber_attribute_mail]));
           });
+
+          $unconfirmed = true;
           foreach ($subscribers as &$subscriber) {
 ?>
-            <?=self::list_item?> <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
-              <b><?=($subscriber[self::subscriber_attribute_name] ?? '</b><i>(' . __('kein Name', 'LL_mailer') . ')</i><b>') . ' / ' . $subscriber[self::subscriber_attribute_mail]?></b>
-            </a>
-            &nbsp;
-            <span style="color: gray;">( <?=!empty($subscriber['subscribed_at']) ? __('abonniert am: ', 'LL_mailer') . $subscriber['subscribed_at'] : __('unbestätigt', 'LL_mailer')?> )</span>
-            <br />
+          <tr>
+            <td>
+              <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>" class="row-title">
+                <?=$subscriber[self::subscriber_attribute_name] ?? ('<i style="font-weight: normal;">' . __('kein Name', 'LL_mailer') . '</i>')?>
+              </a>
+            </td>
+            <td>
+              <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
+                <?=$subscriber[self::subscriber_attribute_mail]?>
+              </a>
+            </td>
+            <td>
+<?php
+              if (!empty($subscriber['subscribed_at']))
+                echo $subscriber['subscribed_at'];
+              else {
+                $meta = json_decode($subscriber['meta']);
+                if (isset($meta->submitted_at)) {
+                  echo date('Y-m-d H:i:s', $meta->submitted_at) . ' (' . __('unbestätigt', 'LL_mailer') . ')';
+                }
+                else {
+                  echo __('unbestätigt', 'LL_mailer');
+                }
+              }
+?>
+            </td>
+          </tr>
 <?php
           }
 ?>
-        </p>
+        </table>
 <?php
       } break;
       
@@ -2243,14 +2410,17 @@ class LL_mailer
 
         <table class="form-table">
           <tr>
-            <th scope="row"><?=__('Abonniert am', 'LL_mailer')?></th>
+            <th scope="row"><?=__('Weitere Daten', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('Bestätigt am', 'LL_mailer')?></td>
             <td>
-              <?php
+<?php
               if (isset($subscriber[self::subscriber_attribute_subscribed_at])) {
                 echo $subscriber[self::subscriber_attribute_subscribed_at];
               }
               else {
-                ?>
+?>
                 <i>( <?=__('unbestätigt', 'LL_mailer')?> )</i> &nbsp;
                 <form method="post" action="admin-post.php" style="display: inline;">
                   <input type="hidden" name="action" value="<?=self::_?>_subscriber_action" />
@@ -2258,10 +2428,22 @@ class LL_mailer
                   <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
                   <?php submit_button(__('Bestätigen (E-Mail-Link überspringen)', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
                 </form>
-                <?php
+<?php
               }
-              ?>
+?>
             </td>
+          </tr>
+<?php
+          $meta = json_decode($subscriber[self::subscriber_attribute_meta]);
+          $not_stored = '<i>nicht gespeichert</i>';
+?>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('Anmeldung am', 'LL_mailer')?></td>
+            <td><?=isset($meta->submitted_at) ? date('Y-m-d H:i:s', $meta->submitted_at) : $not_stored?></td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>><?=__('IP', 'LL_mailer')?></td>
+            <td><?=$meta->ip ?? $not_stored?></td>
           </tr>
         </table>
         
@@ -2357,6 +2539,9 @@ class LL_mailer
   
   static function shortcode_SUBSCRIPTION_FORM($atts)
   {
+    if (isset($_GET[self::user_msg])) {
+      return '<b>' . base64_decode($_GET[self::user_msg]) . '</b>';
+    }
     $attributes = self::get_option_array(self::option_subscriber_attributes);
     ob_start();
 ?>
@@ -2367,29 +2552,57 @@ class LL_mailer
 ?>
       <tr>
         <td><?=$attr_label?></td>
-        <td><input type="text" name="<?=$attr?>" /></td>
+        <td><input type="text" name="<?=self::_ . '_attr_' . $attr?>" /></td>
         <td><?=$attr == self::subscriber_attribute_mail ? _('(Pflichtfeld)') : ''?></td>
       </tr>
 <?php
     }
+
+    $use_robot_check = get_option(self::option_use_robot_check);
+    if ($use_robot_check) {
+      $robot_questions = array(
+        __('Wie lautet das %d. Wort in dieser Frage?', 'LL_mailer'),
+        __('Welches is das %d. Wort dieser Frage?', 'LL_mailer'),
+        __('Bitte nenne das %d. Wort aus diesem Satz.', 'LL_mailer')
+      );
+      $robot_question = $robot_questions[rand(0, 2)];
+      $words = preg_split('/\\s+[%]d[.]\\s+|[^a-z]+/i', $robot_question, -1, PREG_SPLIT_NO_EMPTY);
+      $wordIdx = rand(1, count($words));
+      $robot_question = sprintf($robot_question, $wordIdx);
 ?>
-        <tr><td></td><td><input type="submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> /></td></tr>
+        <tr id="<?=self::_?>_robot_question">
+          <td><?=$robot_question?></td>
+          <td>
+            <input type="text" name="<?=self::_?>_robot_check" />
+            <input type="hidden" name="<?=self::_?>_robot_check_2" value="<?=strtolower($words[$wordIdx - 1])?>" />
+          </td>
+        </tr>
+<?php
+    }
+?>
+        <tr><td></td><td><input type="submit" id="<?=self::_?>_subscribe_form_submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> disabled /></td></tr>
       </table>
 <?php
+
     $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
     $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
     if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false) {
 ?>
-      <input type="hidden" name="recaptcha_token" id="recaptcha_token" />
+      <input type="hidden" id="<?=self::_?>_recaptcha_token" name="recaptcha_token" />
       <script src="https://www.google.com/recaptcha/api.js?render=<?=$recaptcha_website_key?>"></script>
       <script>
         var refreshReCaptchaToken = function() {
           grecaptcha.execute('<?=$recaptcha_website_key?>', {action: 'abo_subscribe'}).then(function(token) {
-            document.getElementById('recaptcha_token').value = token;
+            document.getElementById('<?=self::_?>_recaptcha_token').value = token;
+            document.getElementById('<?=self::_?>_subscribe_form_submit').disabled = false;
             setTimeout(refreshReCaptchaToken, (2*60 -10) * 1000);
           });
         };
-        grecaptcha.ready(refreshReCaptchaToken);
+        grecaptcha.ready(function() {
+          setTimeout(function() {
+            refreshReCaptchaToken();
+          }, 1000);
+        });
       </script>
 <?php
     }
