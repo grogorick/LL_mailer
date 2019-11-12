@@ -44,6 +44,10 @@ class LL_mailer
   const subscriber_attribute_subscribed_at  = 'subscribed_at';
   const subscriber_attribute_meta           = 'meta';
 
+  const meta_ip                             = 'ip';
+  const meta_submitted_at                   = 'submitted_at';
+  const meta_disabled                       = 'disabled';
+
   const table_templates                     = self::_ . '_templates';
   const table_messages                      = self::_ . '_messages';
   const table_subscribers                   = self::_ . '_subscribers';
@@ -244,7 +248,7 @@ class LL_mailer
   
   static function escape_value($value)
   {
-    return '"' . str_replace('"', '\\"', $value) . '"';
+    return '"' . $value . '"';
   }
   
   static function escape_values($values)
@@ -297,7 +301,7 @@ class LL_mailer
       $what = self::escape_keys($what);
     }
     $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . ';';
-    // self::message($sql);
+    // self::message(htmlspecialchars($sql));
     return $sql;
   }
   
@@ -308,7 +312,7 @@ class LL_mailer
       $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
     $sql = 'INSERT INTO ' . self::escape_key($wpdb->prefix . $table) . ' ( ' . implode(', ', array_keys($data)) . ' ) VALUES ( ' . implode(', ', array_values($data)) . ' );';
-    // self::message($sql);
+    // self::message(htmlspecialchars($sql));
     return $wpdb->query($sql);
   }
   
@@ -319,7 +323,7 @@ class LL_mailer
       $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
     $sql = 'UPDATE ' . self::escape_key($wpdb->prefix . $table) . ' SET ' . self::array_zip(' = ', $data, ', ') . self::build_where($where) . ';';
-    // self::message($sql);
+    // self::message(htmlspecialchars($sql));
     return $wpdb->query($sql);
   }
   
@@ -327,7 +331,7 @@ class LL_mailer
   {
     global $wpdb;
     $sql = 'DELETE FROM ' . self::escape_key($wpdb->prefix . $table) . self::build_where($where) . ';';
-    // self::message($sql);
+    // self::message(htmlspecialchars($sql));
     return $wpdb->query($sql);
   }
   
@@ -381,10 +385,10 @@ class LL_mailer
   // - meta
   // [...]
   static function db_add_subscriber($subscriber) {
-    $subscriber[self::subscriber_attribute_meta] = json_encode(array(
-      'submitted_at' => time(),
-      'ip' => ($_SERVER['HTTP_CLIENT_IP'] ?? ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR']))
-    ));
+    $subscriber[self::subscriber_attribute_meta] = addslashes(json_encode(array(
+      self::meta_submitted_at => time(),
+      self::meta_ip => ($_SERVER['HTTP_CLIENT_IP'] ?? ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR']))
+    )));
 	  return self::_db_insert(self::table_subscribers, $subscriber);
 	}
   static function db_update_subscriber($subscriber, $old_mail) { return self::_db_update(self::table_subscribers, $subscriber, array(self::subscriber_attribute_mail => $old_mail)); }
@@ -880,6 +884,7 @@ class LL_mailer
           $errors = [];
           $txt_goto_message = __('Zur Nachricht', 'LL_mailer');
           $edit_url = self::admin_url() . self::admin_page_message_edit . $msg;
+          $num_mails_sent = 0;
           if (!$msg) {
             $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
           }
@@ -904,13 +909,19 @@ class LL_mailer
                 $subscribers = self::db_get_subscribers('*', true);
                 $token_errors = [];
                 foreach ($subscribers as $subscriber) {
+                  $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
+                  if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
+                    continue;
+                  }
+                  $num_mails_sent++;
+
                   $tmp_subject = $subject;
                   $tmp_body_html = $body_html;
                   $tmp_body_text = $body_text;
                   $tmp_replace_dict = $replace_dict;
                   self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
-                  self::prepare_mail_inline_css($tmp_body_html);
                   $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
+                  self::prepare_mail_inline_css($tmp_body_html);
 
                   if (self::$error['replace_token']) {
                     $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')';
@@ -931,7 +942,7 @@ class LL_mailer
             self::message("Fehler: " . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
           }
           else {
-            self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', count($subscribers)));
+            self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', $num_mails_sent));
             self::hide_message(self::msg_id_new_post_published($post->ID));
           }
           wp_redirect(wp_get_referer());
@@ -2339,12 +2350,14 @@ class LL_mailer
 
           $unconfirmed = true;
           foreach ($subscribers as &$subscriber) {
+            $meta = json_decode($subscriber['meta'], true);
 ?>
           <tr>
             <td>
               <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>" class="row-title">
                 <?=$subscriber[self::subscriber_attribute_name] ?? ('<i style="font-weight: normal;">' . __('kein Name', 'LL_mailer') . '</i>')?>
               </a>
+              <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? '(' . __('deaktiviert', 'LL_mailer') . ')' : ''?>
             </td>
             <td>
               <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
@@ -2356,9 +2369,8 @@ class LL_mailer
               if (!empty($subscriber['subscribed_at']))
                 echo $subscriber['subscribed_at'];
               else {
-                $meta = json_decode($subscriber['meta']);
-                if (isset($meta->submitted_at)) {
-                  echo date('Y-m-d H:i:s', $meta->submitted_at) . ' (' . __('unbestätigt', 'LL_mailer') . ')';
+                if (isset($meta[self::meta_submitted_at])) {
+                  echo date('Y-m-d H:i:s', $meta[self::meta_submitted_at]) . ' (' . __('unbestätigt', 'LL_mailer') . ')';
                 }
                 else {
                   echo __('unbestätigt', 'LL_mailer');
@@ -2383,6 +2395,7 @@ class LL_mailer
           wp_redirect(self::admin_url() . self::admin_page_subscribers);
           exit;
         }
+        $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
 ?>
         <h1><?=__('Abonnenten', 'LL_mailer')?> &gt; <?=$subscriber_mail?></h1>
 
@@ -2398,12 +2411,18 @@ class LL_mailer
             <tr>
               <th scope="row"><?=$attr_label?></th>
               <td>
-                <input type="text" name="<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
+                <input type="text" name="attr_<?=$attr?>" value="<?=esc_attr($subscriber[$attr])?>" placeholder="<?=$attr_label?>" class="regular-text" />
               </td>
             </tr>
 <?php
             }
 ?>
+            <tr>
+              <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></td>
+              <td>
+                <input type="checkbox" name="meta_<?=self::meta_disabled?>" <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? 'checked' : ''?> />
+              </td>
+            </tr>
           </table>
           <?php submit_button(__('Abonnent speichern', 'LL_mailer')); ?>
         </form>
@@ -2434,16 +2453,15 @@ class LL_mailer
             </td>
           </tr>
 <?php
-          $meta = json_decode($subscriber[self::subscriber_attribute_meta]);
-          $not_stored = '<i>nicht gespeichert</i>';
+          $meta_not_stored = '<i>' . __('nicht gespeichert', 'LL_mailer') . '</i>';
 ?>
           <tr>
             <td <?=self::secondary_settings_label?>><?=__('Anmeldung am', 'LL_mailer')?></td>
-            <td><?=isset($meta->submitted_at) ? date('Y-m-d H:i:s', $meta->submitted_at) : $not_stored?></td>
+            <td><?=isset($meta[self::meta_submitted_at]) ? date('Y-m-d H:i:s', $meta[self::meta_submitted_at]) : $meta_not_stored?></td>
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>><?=__('IP', 'LL_mailer')?></td>
-            <td><?=$meta->ip ?? $not_stored?></td>
+            <td><?=$meta[self::meta_ip] ?? $meta_not_stored?></td>
           </tr>
         </table>
         
@@ -2493,7 +2511,7 @@ class LL_mailer
         }
         
         else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_edit')) {
-          $new_subscriber_mail = trim($_POST[self::subscriber_attribute_mail]);
+          $new_subscriber_mail = trim($_POST['attr_' . self::subscriber_attribute_mail]);
           if (!filter_var($new_subscriber_mail, FILTER_VALIDATE_EMAIL)) {
             self::message(sprintf(__('Die neue E-Mail Adresse <b>%s</b> ist ungültig.', 'LL_mailer'), $new_subscriber_mail));
             wp_redirect(self::admin_url() . self::admin_page_subscriber_edit . urlencode($subscriber_mail));
@@ -2503,10 +2521,19 @@ class LL_mailer
           $attributes = self::get_option_array(self::option_subscriber_attributes);
           $subscriber = array();
           foreach (array_keys($attributes) as $attr) {
-            $subscriber[$attr] = $_POST[$attr] ?: null;
+            $subscriber[$attr] = $_POST['attr_' . $attr] ?: null;
           }
           $subscriber[self::subscriber_attribute_mail] = $new_subscriber_mail;
           
+          $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
+          if (isset($_POST['meta_' . self::meta_disabled])) {
+            $meta[self::meta_disabled] = true;
+          }
+          else if (isset($meta[self::meta_disabled])) {
+            unset($meta[self::meta_disabled]);
+          }
+          $subscriber[self::subscriber_attribute_meta] = addslashes(json_encode($meta));
+
           self::db_update_subscriber($subscriber, $subscriber_mail);
           
           self::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $new_subscriber_mail));
