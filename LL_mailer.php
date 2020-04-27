@@ -36,7 +36,6 @@ class LL_mailer
   const option_new_post_msg                 = self::_ . '_new_post_msg';
   const option_recaptcha_website_key        = self::_ . '_recaptcha_website_key';
   const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
-  const option_recaptcha_min_score          = self::_ . '_recaptcha_min_score';
   const option_use_robot_check              = self::_ . '_use_robot_check';
 
   const subscriber_attribute_mail           = 'mail';
@@ -105,7 +104,13 @@ class LL_mailer
                                                     'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]'
                                                     );
   
+  const robot_questions = array(array('Welche Farbe haben Bananen?', 'gelb'),
+                                array('Auf welchem Planeten leben wir?', 'Erde'),
+                                array('Ist es tags hell oder dunkel?', 'hell'),
+                                array('Schwimmt man in Sand oder Wasser?', 'Wasser'));
+  
   const user_msg = self::_ . '_usermsg';
+  const retry = self::_ . '_retry';
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
   const arrow_up = '&#x2934;';
   const arrow_down = '&#x2935;';
@@ -487,7 +492,6 @@ class LL_mailer
     delete_option(self::option_new_post_msg);
     delete_option(self::option_recaptcha_website_key);
     delete_option(self::option_recaptcha_secret_key);
-    delete_option(self::option_recaptcha_min_score);
     delete_option(self::option_use_robot_check);
   }
 
@@ -939,7 +943,7 @@ class LL_mailer
             }
           }
           if (!empty($errors)) {
-            self::message("Fehler: " . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
+            self::message(sprintf("Fehler für Post-Nachricht <a href=\"%s\">%s</a>: ", get_permalink($request['post']), get_the_title($request['post'])) . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
           }
           else {
             self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', $num_mails_sent));
@@ -997,10 +1001,12 @@ class LL_mailer
     if (!empty($_POST) && isset($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail]) && !empty($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail])) {
 
       if (get_option(self::option_use_robot_check)) {
-        if (!isset($_POST[self::_ . '_robot_check']) || !isset($_POST[self::_ . '_robot_check_2']) || $_POST[self::_ . '_robot_check'] != $_POST[self::_ . '_robot_check_2']) {
+        $robot_check = isset($_POST[self::_ . '_robot_check']) ? $_POST[self::_ . '_robot_check'] : null;
+        $robot_check_2 = intval($_POST[self::_ . '_robot_check_2']);
+        if (is_null($robot_check) || strtolower($robot_check) != strtolower(self::robot_questions[$robot_check_2][1])) {
           $subscribe_page = get_option(self::option_subscribe_page);
           if ($subscribe_page !== false) {
-            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Deine Antwort passt nicht zur Sicherheitsfrage.', 'LL_mailer'))));
+            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::retry . '&' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Deine Antwort passt nicht zur Sicherheitsfrage.', 'LL_mailer'))));
           }
           else {
             wp_redirect(home_url());
@@ -1011,19 +1017,27 @@ class LL_mailer
 
       $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
       $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
-      if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false && isset($_POST[self::_ . '_recaptcha_token']) && !empty($_POST[self::_ . '_recaptcha_token'])) {
-        $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(['http' => [
-          'method' => 'POST',
-          'content' => http_build_query([
-            'secret' => $recaptcha_secret_key,
-            'response' => $_POST[self::_ . '_recaptcha_token']
-          ])]]));
-        $recaptcha_result = json_decode($recaptcha_result);
-        $recaptcha_min_score = get_option(self::option_recaptcha_min_score, '0.5');
-        if (!$recaptcha_result->success || strtolower($recaptcha_result->hostname) != strtolower($_SERVER['SERVER_NAME']) || $recaptcha_result->action != 'abo_subscribe' || $recaptcha_result->score < $recaptcha_min_score) {
+      if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false) {
+        $captcha_failed = null;
+        if (!isset($_POST['g-recaptcha-response']) || empty($_POST['g-recaptcha-response'])) {
+          $captcha_failed = __('Bitte bestätige, dass du kein Roboter bist.', 'LL_mailer');
+        }
+        if (is_null($captcha_failed)) {
+          $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(['http' => [
+            'method' => 'POST',
+            'content' => http_build_query([
+              'secret' => $recaptcha_secret_key,
+              'response' => $_POST['g-recaptcha-response']
+            ])]]));
+          $recaptcha_result = json_decode($recaptcha_result);
+          if (!$recaptcha_result->success) {
+            $captcha_failed = __('Oh oh. Unser Test sagt, du bist ein Roboter.', 'LL_mailer');
+          }
+        }
+        if (!is_null($captcha_failed)) {
           $subscribe_page = get_option(self::option_subscribe_page);
           if ($subscribe_page !== false) {
-            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Unser Test sagt, dass die Anmeldung automatisiert ausgefüllt wurde.', 'LL_mailer'))));
+            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::retry . '&' . self::user_msg . '=' . urlencode(base64_encode($captcha_failed)));
           }
           else {
             wp_redirect(home_url());
@@ -1031,7 +1045,7 @@ class LL_mailer
           exit;
         }
       }
-      
+
       $attributes = self::get_option_array(self::option_subscriber_attributes);
       $new_subscriber = array();
       foreach ($attributes as $attr => $attr_label) {
@@ -1039,7 +1053,7 @@ class LL_mailer
           $new_subscriber[$attr] = $_POST[self::_ . '_attr_' . $attr];
         }
       }
-      
+
       self::db_add_subscriber($new_subscriber);
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
@@ -1053,7 +1067,7 @@ class LL_mailer
           else {
             $subscribe_page = get_option(self::option_subscribe_page);
             if ($subscribe_page !== false) {
-              wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg .'=' . urlencode(base64_encode(__('Du erhältst in diesem Moment eine E-Mail. Bitte nutze den Link darin, um deine Anmeldung zu bestätigen.', 'LL_mailer'))));
+              wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg .'=' . urlencode(base64_encode(sprintf(__('Du erhältst in diesem Moment eine E-Mail an %s. Bitte nutze den Link darin, um deine Anmeldung zu bestätigen.', 'LL_mailer'), $new_subscriber[self::subscriber_attribute_mail]))));
             }
             else {
               wp_redirect(home_url());
@@ -1454,14 +1468,6 @@ class LL_mailer
               <input type="text" id="<?=self::option_recaptcha_secret_key?>" name="<?=self::option_recaptcha_secret_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_secret_key))?>" placeholder="Code" class="regular-text" />
             </td>
           </tr>
-          <tr>
-            <td <?=self::secondary_settings_label?>>
-              <label for="<?=self::option_recaptcha_min_score?>"><?=__('Minimum Score', 'LL_mailer')?></label>
-            </td>
-            <td>
-              <input type="text" step="0.01" id="<?=self::option_recaptcha_min_score?>" name="<?=self::option_recaptcha_min_score?>" value="<?=esc_attr(get_option(self::option_recaptcha_min_score))?>" placeholder="0.5" class="regular-text" />
-            </td>
-          </tr>
         </table>
         <?php submit_button(); ?>
       </form>
@@ -1624,7 +1630,6 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_new_post_msg);
     register_setting(self::_ . '_general', self::option_recaptcha_website_key);
     register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
-    register_setting(self::_ . '_general', self::option_recaptcha_min_score);
     register_setting(self::_ . '_general', self::option_use_robot_check);
   }
 
@@ -2567,73 +2572,66 @@ class LL_mailer
   static function shortcode_SUBSCRIPTION_FORM($atts)
   {
     if (isset($_GET[self::user_msg])) {
-      return '<b>' . base64_decode($_GET[self::user_msg]) . '</b>';
+      $msg = base64_decode($_GET[self::user_msg]);
+      if (!isset($_GET[self::retry])) {
+        return '<b>' . $msg . '</b>';
+      }
     }
-    $attributes = self::get_option_array(self::option_subscriber_attributes);
+    
     ob_start();
+    $attributes = self::get_option_array(self::option_subscriber_attributes);
 ?>
     <form action="<?=self::json_url()?>subscribe" method="post" <?=$atts['html_attr'] ?: ''?>>
       <table>
 <?php
     foreach ($attributes as $attr => $attr_label) {
+      $is_email = $attr === self::subscriber_attribute_mail;
+      $input_type = $is_email ? 'email' : 'text';
+      $input_required = $is_email ? _('(Pflichtfeld)') : '';
 ?>
       <tr>
         <td><?=$attr_label?></td>
-        <td><input type="text" name="<?=self::_ . '_attr_' . $attr?>" /></td>
-        <td><?=$attr == self::subscriber_attribute_mail ? _('(Pflichtfeld)') : ''?></td>
+        <td><input type="<?=$input_type?>" name="<?=self::_ . '_attr_' . $attr?>" /></td>
+        <td><?=$input_required?></td>
       </tr>
 <?php
     }
 
     $use_robot_check = get_option(self::option_use_robot_check);
     if ($use_robot_check) {
-      $robot_questions = array(
-        __('Wie lautet das %d. Wort in dieser Frage?', 'LL_mailer'),
-        __('Welches is das %d. Wort dieser Frage?', 'LL_mailer'),
-        __('Bitte nenne das %d. Wort aus diesem Satz.', 'LL_mailer')
-      );
-      $robot_question = $robot_questions[rand(0, 2)];
-      $words = preg_split('/\\s+[%]d[.]\\s+|[^a-z]+/i', $robot_question, -1, PREG_SPLIT_NO_EMPTY);
-      $wordIdx = rand(1, count($words));
-      $robot_question = sprintf($robot_question, $wordIdx);
+      $robot_question_idx = rand(0, count(self::robot_questions) - 1);
 ?>
         <tr id="<?=self::_?>_robot_question">
-          <td><?=$robot_question?></td>
+          <td><?=self::robot_questions[$robot_question_idx][0]?></td>
           <td>
             <input type="text" name="<?=self::_?>_robot_check" />
-            <input type="hidden" name="<?=self::_?>_robot_check_2" value="<?=strtolower($words[$wordIdx - 1])?>" />
+            <input type="hidden" name="<?=self::_?>_robot_check_2" value="<?=$robot_question_idx?>" />
           </td>
         </tr>
 <?php
     }
-?>
-        <tr><td></td><td><input type="submit" id="<?=self::_?>_subscribe_form_submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> disabled /></td></tr>
-      </table>
-<?php
 
     $recaptcha_website_key = get_option(self::option_recaptcha_website_key);
     $recaptcha_secret_key = get_option(self::option_recaptcha_secret_key);
     if ($recaptcha_website_key !== false && $recaptcha_secret_key !== false) {
 ?>
-      <input type="hidden" id="<?=self::_?>_recaptcha_token" name="recaptcha_token" />
-      <script src="https://www.google.com/recaptcha/api.js?render=<?=$recaptcha_website_key?>"></script>
-      <script>
-        var refreshReCaptchaToken = function() {
-          grecaptcha.execute('<?=$recaptcha_website_key?>', {action: 'abo_subscribe'}).then(function(token) {
-            document.getElementById('<?=self::_?>_recaptcha_token').value = token;
-            document.getElementById('<?=self::_?>_subscribe_form_submit').disabled = false;
-            setTimeout(refreshReCaptchaToken, (2*60 -10) * 1000);
-          });
-        };
-        grecaptcha.ready(function() {
-          setTimeout(function() {
-            refreshReCaptchaToken();
-          }, 1000);
-        });
-      </script>
+      <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+      <tr id="<?=self::_?>_google_recaptcha">
+        <td></td><td>
+          <div class="g-recaptcha" data-sitekey="<?=$recaptcha_website_key?>"></div>
+        </td>
+      </tr>
+<?php
+    }
+
+    if (isset($msg)) {
+?>
+      <tr><td></td><td><?=$msg?></td></tr>
 <?php
     }
 ?>
+        <tr><td></td><td><input type="submit" id="<?=self::_?>_subscribe_form_submit" value="<?=__('Jetzt anmelden', 'LL_mailer')?>" <?=$atts['button_attr'] ?: ''?> /></td></tr>
+      </table>
     </form>
 <?php
     return ob_get_clean();
