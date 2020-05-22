@@ -1729,7 +1729,7 @@ class LL_mailer
         
         <h1><?=__('Gespeicherte Vorlagen', 'LL_mailer')?></h1>
         <p></p>
-        <table class="wp-list-table widefat fixed striped">
+        <table class="widefat fixed striped">
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('Zuletzt bearbeitet', 'LL_mailer')?></th>
@@ -1925,7 +1925,7 @@ class LL_mailer
         
         <h1><?=__('Gespeicherte Nachrichten', 'LL_mailer')?></h1>
         <p></p>
-        <table class="wp-list-table widefat fixed striped">
+        <table class="widefat fixed striped">
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('Betreff', 'LL_mailer')?></th>
@@ -2340,7 +2340,7 @@ class LL_mailer
         
         <h1><?=__('Gespeicherte Abonnenten', 'LL_mailer')?></h1>
         <p></p>
-        <table class="wp-list-table widefat fixed striped">
+        <table class="widefat fixed striped">
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
