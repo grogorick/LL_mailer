@@ -71,8 +71,11 @@ class LL_mailer
   const token_UNSUBSCRIBE_URL               = array('pattern' => '[UNSUBSCRIBE_URL]',
                                                     'html'    => '[UNSUBSCRIBE_URL]'
                                                     );
-  const token_IN_NEW_POST_MAIL              = array('pattern' => '/\[IN_NEW_POST_MAIL\](.*)\[\/IN_NEW_POST_MAIL\]/s',
+  const token_IN_NEW_POST_MAIL              = array('pattern' => '/\[IN_NEW_POST_MAIL\]((?:(?!\[IN_NEW_POST_MAIL\]).)*)\[\/IN_NEW_POST_MAIL\]/s',
                                                     'html'    => '[IN_NEW_POST_MAIL]...[/IN_NEW_POST_MAIL]'
+                                                    );
+  const token_ESCAPE_HTML                   = array('pattern' => '/\[ESCAPE_HTML\]((?:(?!\[ESCAPE_HTML\]).)*)\[\/ESCAPE_HTML\]/s',
+                                                    'html'    => '[ESCAPE_HTML]...[/ESCAPE_HTML]'
                                                     );
   const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER' . self::attr_fmt_alt . '\]/',
                                                     'html'    => '[SUBSCRIBER' . self::attr_fmt_alt_html . ']',
@@ -657,6 +660,36 @@ class LL_mailer
     $body_text = self::replace_token_IN_NEW_POST_MAIL($body_text, $is_new_post_mail, false, $replace_dict);
   }
 
+  static function replace_token_ESCAPE_HTML($text, $is_html, &$replace_dict)
+  {
+    preg_match_all(self::token_ESCAPE_HTML['pattern'], $text, $matches, PREG_SET_ORDER);
+    if (!empty($matches)) {
+      $FULL = 0;
+      $CONTENT = 1;
+      $html_or_text = $is_html ? 'html' : 'text';
+      foreach ($matches as &$match) {
+        if (!is_null($replace_dict) && isset($replace_dict['block'][$html_or_text][$match[$FULL]])) {
+          $replacement = $replace_dict['block'][$html_or_text][$match[$FULL]];
+        }
+        else {
+          $replacement = htmlspecialchars($match[$CONTENT]);
+
+          if (!is_null($replace_dict)) {
+            $replace_dict['block'][$html_or_text][$match[$FULL]] = $replacement;
+          }
+        }
+        $text = str_replace($match[$FULL], $replacement, $text);
+      }
+    }
+    return $text;
+  }
+
+  static function prepare_mail_to_escape_html(&$body_html, &$body_text, &$replace_dict)
+  {
+    $body_html = self::replace_token_ESCAPE_HTML($body_html, true, $replace_dict);
+    $body_text = self::replace_token_ESCAPE_HTML($body_text, false, $replace_dict);
+  }
+
   static function prepare_mail_attachments(&$body_html, $is_preview, &$replace_dict)
   {
     $attachments = array();
@@ -781,6 +814,8 @@ class LL_mailer
     if ($find_and_replace_attachments !== false) {
       $attachments = self::prepare_mail_attachments($body_html, $find_and_replace_attachments === 'preview', $replace_dict);
     }
+
+    self::prepare_mail_to_escape_html($body_html, $body_text, $replace_dict);
 
     if ($inline_css) {
       self::prepare_mail_inline_css($body_html);
@@ -1228,6 +1263,12 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code><?=self::token_UNSUBSCRIBE_URL['html']?></code></td>
         <td><?=__('URL zur Abmeldung vom Abo.', 'LL_mailer')?></td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
+        <td><code><?=self::token_ESCAPE_HTML['html']?></code></td>
+        <td>
+          <?=__('Ein Textbereich, in dem Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) nicht als HTML-Code interpretiert werden sollen.', 'LL_mailer')?>
+        </td>
       </tr>
     </table>
 <?php
