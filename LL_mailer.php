@@ -771,7 +771,7 @@ class LL_mailer
     $body_html = preg_replace('/\\s\\s+/i', ' ', $body_html);
   }
 
-  static function prepare_mail($msg, $to /* email | null */, $post_id /* ID | null */, $apply_template /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
+  static function prepare_mail($msg, $to /* email | null */, $post_id /* ID | null */, $apply_template /* true | false */, $escape_html /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
   {
     if (isset($msg)) {
       if (is_string($msg)) {
@@ -810,12 +810,14 @@ class LL_mailer
       $post = self::prepare_mail_for_post($post_id, $subject, $body_html, $body_text, $replace_dict);
     }
 
+    if ($escape_html) {
+      self::prepare_mail_to_escape_html($body_html, $body_text, $replace_dict);
+    }
+
     $attachments = array();
     if ($find_and_replace_attachments !== false) {
       $attachments = self::prepare_mail_attachments($body_html, $find_and_replace_attachments === 'preview', $replace_dict);
     }
-
-    self::prepare_mail_to_escape_html($body_html, $body_text, $replace_dict);
 
     if ($inline_css) {
       self::prepare_mail_inline_css($body_html);
@@ -872,7 +874,7 @@ class LL_mailer
   
   static function prepare_and_send_mail($msg_slug, $to, $post_id = null, $receiver_mail_if_different_from_subscriber_mail = null)
   {
-    $mail_or_error = self::prepare_mail($msg_slug, $to, $post_id, true, true, true);
+    $mail_or_error = self::prepare_mail($msg_slug, $to, $post_id, true, true, true, true);
     if (is_string($mail_or_error)) return $mail_or_error;
     list($to, $subject, $body_html, $body_text, $attachments) = $mail_or_error;
 
@@ -903,6 +905,7 @@ class LL_mailer
         $request['to'],
         $request['post'] ?: null,
         true,
+        true,
         false,
         'preview');
       if (is_string($mail_or_error)) return array('error' => $mail_or_error);
@@ -928,7 +931,7 @@ class LL_mailer
             $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
           }
           else {
-            $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false);
+            $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false, false);
             if (is_string($mail_or_error)) {
               $errors[] = $mail_or_error;
             }
@@ -959,6 +962,7 @@ class LL_mailer
                   $tmp_body_text = $body_text;
                   $tmp_replace_dict = $replace_dict;
                   self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
+                  self::prepare_mail_to_escape_html($tmp_body_html, $tmp_body_text, $tmp_replace_dict);
                   $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
                   self::prepare_mail_inline_css($tmp_body_html);
 
