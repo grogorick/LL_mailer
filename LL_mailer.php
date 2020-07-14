@@ -62,6 +62,8 @@ class LL_mailer
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt|alt)="([^"]*)")?(\s+(fmt|alt)="([^"]*)")?';
   const attr_fmt_alt_html                   = ' "<i>Attribut</i>" fmt="&percnt;s" alt=""';
 
+  const pattern_any_token                   = '/\[[^\]]*\]/';
+
   const token_CONTENT                       = array('pattern' => '[CONTENT]',
                                                     'html'    => '[CONTENT]'
                                                     );
@@ -71,8 +73,8 @@ class LL_mailer
   const token_UNSUBSCRIBE_URL               = array('pattern' => '[UNSUBSCRIBE_URL]',
                                                     'html'    => '[UNSUBSCRIBE_URL]'
                                                     );
-  const token_IN_NEW_POST_MAIL              = array('pattern' => '/\[IN_NEW_POST_MAIL\]((?:(?!\[IN_NEW_POST_MAIL\]).)*)\[\/IN_NEW_POST_MAIL\]/s',
-                                                    'html'    => '[IN_NEW_POST_MAIL]...[/IN_NEW_POST_MAIL]'
+  const token_IN_ABO_MAIL                   = array('pattern' => '/\[IN_ABO_MAIL\]((?:(?!\[IN_ABO_MAIL\]).)*)\[\/IN_ABO_MAIL\]/s',
+                                                    'html'    => '[IN_ABO_MAIL]...[/IN_ABO_MAIL]'
                                                     );
   const token_ESCAPE_HTML                   = array('pattern' => '/\[ESCAPE_HTML\]((?:(?!\[ESCAPE_HTML\]).)*)\[\/ESCAPE_HTML\]/s',
                                                     'html'    => '[ESCAPE_HTML]...[/ESCAPE_HTML]'
@@ -122,7 +124,7 @@ class LL_mailer
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
   
-  static $error = ['replace_token' => 0];
+  static $error = array('replace_token' => 0);
   
   
   
@@ -403,28 +405,42 @@ class LL_mailer
   static function db_confirm_subscriber($mail) { return self::_db_update(self::table_subscribers, array(), array(self::subscriber_attribute_mail => $mail), self::subscriber_attribute_subscribed_at); }
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
-  static function db_get_subscribers($what, $confirmed_only = false) { return self::_db_select(self::table_subscribers, $what, $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array()); }
-  
-  static function db_subscribers_add_attribute($attr) {
+
+  static function db_get_subscribers($what, $confirmed_only = false, $active_only = false)
+  {
+    $subscribers = self::_db_select(self::table_subscribers, $what, $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
+    if (!$active_only) {
+      return $subscribers;
+    }
+    return array_filter($subscribers, function($subscriber) {
+      $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
+      return !(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]);
+    });
+  }
+
+  static function db_subscribers_add_attribute($attr)
+  {
     global $wpdb;
     $sql = 'ALTER TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ' ADD ' . self::escape_keys($attr) . ' TEXT NULL DEFAULT NULL;';
     // self::message($sql);
     return $wpdb->query($sql);
   }
-  static function db_subscribers_rename_attribute($attr, $new_attr) {
+  static function db_subscribers_rename_attribute($attr, $new_attr)
+  {
     global $wpdb;
     $sql = 'ALTER TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ' CHANGE ' . self::escape_keys($attr) . ' ' . self::escape_keys($new_attr) . ' TEXT;';
     // self::message($sql);
     return $wpdb->query($sql);
   }
-  static function db_subscribers_delete_attribute($attr) {
+  static function db_subscribers_delete_attribute($attr)
+  {
     global $wpdb;
     $sql = 'ALTER TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ' DROP ' . self::escape_keys($attr) . ';';
     // self::message($sql);
     return $wpdb->query($sql);
   }
-  
-  
+
+
 
   static function activate()
   {
@@ -625,9 +641,9 @@ class LL_mailer
     $body_text = str_replace(self::token_CONTENT['pattern'], $body_text, $template['body_text']);
   }
 
-  static function replace_token_IN_NEW_POST_MAIL($text, $is_new_post_mail, $is_html, &$replace_dict)
+  static function replace_token_IN_ABO_MAIL($text, $is_abo_mail, $is_html, &$replace_dict)
   {
-    preg_match_all(self::token_IN_NEW_POST_MAIL['pattern'], $text, $matches, PREG_SET_ORDER);
+    preg_match_all(self::token_IN_ABO_MAIL['pattern'], $text, $matches, PREG_SET_ORDER);
     if (!empty($matches)) {
       $FULL = 0;
       $CONTENT = 1;
@@ -637,7 +653,7 @@ class LL_mailer
           $replacement = $replace_dict['block'][$html_or_text][$match[$FULL]];
         }
         else {
-          if ($is_new_post_mail) {
+          if ($is_abo_mail) {
             $replacement = $match[$CONTENT];
           }
           else {
@@ -654,10 +670,10 @@ class LL_mailer
     return $text;
   }
 
-  static function prepare_mail_for_new_post_mail($is_new_post_mail, &$body_html, &$body_text, &$replace_dict)
+  static function prepare_mail_for_abo_mail($is_abo_mail, &$body_html, &$body_text, &$replace_dict)
   {
-    $body_html = self::replace_token_IN_NEW_POST_MAIL($body_html, $is_new_post_mail, true, $replace_dict);
-    $body_text = self::replace_token_IN_NEW_POST_MAIL($body_text, $is_new_post_mail, false, $replace_dict);
+    $body_html = self::replace_token_IN_ABO_MAIL($body_html, $is_abo_mail, true, $replace_dict);
+    $body_text = self::replace_token_IN_ABO_MAIL($body_text, $is_abo_mail, false, $replace_dict);
   }
 
   static function replace_token_ESCAPE_HTML($text, $is_html, &$replace_dict)
@@ -771,7 +787,7 @@ class LL_mailer
     $body_html = preg_replace('/\\s\\s+/i', ' ', $body_html);
   }
 
-  static function prepare_mail($msg, $to /* email | null */, $post_id /* ID | null */, $apply_template /* true | false */, $escape_html /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
+  static function prepare_mail($msg, $to /* email | null */, $is_abo_mail /* true | false */, $post_id /* ID | null */, $escape_html /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
   {
     if (isset($msg)) {
       if (is_string($msg)) {
@@ -782,7 +798,7 @@ class LL_mailer
       $body_html = $msg['body_html'];
       $body_text = $msg['body_text'];
 
-      if ($apply_template && !is_null($msg['template_slug'])) {
+      if (!is_null($msg['template_slug'])) {
         self::prepare_mail_for_template($msg['template_slug'], $body_html, $body_text);
       }
     }
@@ -796,12 +812,13 @@ class LL_mailer
         'html' => array(),
         'text' => array()));
 
-    self::prepare_mail_for_new_post_mail(!is_null($post_id), $body_html, $body_text, $replace_dict);
+    self::prepare_mail_for_abo_mail($is_abo_mail, $body_html, $body_text, $replace_dict);
 
     if (!is_null($to)) {
-      $to = self::db_get_subscriber_by_mail($to);
-      if (is_null($to)) return __('Empfänger nicht gefunden.', 'LL_mailer');
-
+      list($error, $to) = self::prepare_receiver($to);
+      if (!is_null($error)) {
+        return $error;
+      }
       self::prepare_mail_for_receiver($to, $subject, $body_html, $body_text, $replace_dict);
     }
 
@@ -825,6 +842,22 @@ class LL_mailer
 
     return array($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post);
   }
+  
+  static function prepare_receiver($receiver_data_or_mail)
+  {
+    $error = null;
+    $receiver = $receiver_data_or_mail;
+    if (is_string($receiver_data_or_mail)) {
+      $tmp_receiver = self::db_get_subscriber_by_mail($receiver_data_or_mail);
+      if (is_null($tmp_receiver)) {
+        $error = __('Empfänger nicht gefunden.', 'LL_mailer');
+      }
+      else {
+        $receiver = $tmp_receiver;
+      }
+    }
+    return array($error, $receiver);
+  }
 
   static function get_sender()
   {
@@ -836,7 +869,17 @@ class LL_mailer
   {
     if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
     {
-      return __('Nachricht nicht gesendet. Absender-Name oder E-Mail wurden in den Einstellungen nicht angegeben.', 'LL_mailer');
+      return __('Nachricht nicht gesendet. Absender-Name oder E-Mail fehlen.', 'LL_mailer');
+    }
+
+    if (preg_match(self::pattern_any_token, $subject)) {
+      return __('Nachricht nicht gesendet. Im Betreff konnten nicht alle Platzhalter ersetzt werden.', 'LL_mailer');
+    }
+    if (preg_match(self::pattern_any_token, $body_html)) {
+      return __('Nachricht nicht gesendet. Im Inhalt (HTML) konnten nicht alle Platzhalter ersetzt werden.', 'LL_mailer');
+    }
+    if (preg_match(self::pattern_any_token, $body_text)) {
+      return __('Nachricht nicht gesendet. Im Inhalt (Text) konnten nicht alle Platzhalter ersetzt werden.', 'LL_mailer');
     }
 
     try {
@@ -861,7 +904,11 @@ class LL_mailer
       }
 
       $success = $phpmailer->send();
-      return ($success && !$phpmailer->isError()) ? false : sprintf(__('Nachricht nicht gesendet. PHPMailer Fehler: %s', 'LL_mailer'), $phpmailer->ErrorInfo);
+      if ($success && !$phpmailer->isError()) {
+        // SUCCESS
+        return null;
+      }
+      return sprintf(__('Nachricht nicht gesendet. PHPMailer Fehler: %s', 'LL_mailer'), $phpmailer->ErrorInfo);
 
     }
     catch (phpmailerException $e) {
@@ -872,43 +919,96 @@ class LL_mailer
     }
   }
   
-  static function prepare_and_send_mail($msg_slug, $to, $post_id = null, $receiver_mail_if_different_from_subscriber_mail = null)
+  static function prepare_and_send_mails($msg, $subscribers, $is_abo_mail = true, $post_id = null, $receiver_if_different_from_subscribers = null)
   {
-    $mail_or_error = self::prepare_mail($msg_slug, $to, $post_id, true, true, true, true);
-    if (is_string($mail_or_error)) return $mail_or_error;
-    list($to, $subject, $body_html, $body_text, $attachments) = $mail_or_error;
-
-    if (!is_null($receiver_mail_if_different_from_subscriber_mail)) {
-      $to = $receiver_mail_if_different_from_subscriber_mail;
+    $out_errors = array();
+    $out_num_mails_sent = 0;
+    $out_post = null;
+    $txt_goto_message = __('Zur Nachricht', 'LL_mailer');
+    $edit_url = self::admin_url() . self::admin_page_message_edit . $msg;
+    $mail_or_error = self::prepare_mail($msg, null, $is_abo_mail, $post_id, false, false, false);
+    if (is_string($mail_or_error)) {
+      $out_errors[] = $mail_or_error;
     }
+    if (self::$error['replace_token']) {
+      $out_errors[] = sprintf(__('Die Nachricht enthält %d Platzhalter-Fehler.', 'LL_mailer'), self::$error['replace_token']) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für alle Abonnenten <b>abgebrochen</b>.', 'LL_mailer');
+    }
+    if (empty($out_errors)) {
+      list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $out_post) = $mail_or_error;
 
-    return self::send_mail(self::get_sender(), $to, $subject, $body_html, $body_text, $attachments);
+      $from = self::get_sender();
+      if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
+      {
+        $out_errors[] = __('Absender-Name oder E-Mail wurden in den Einstellungen nicht angegeben.', 'LL_mailer');
+      }
+      else {
+        $token_errors = array();
+        foreach ($subscribers as $subscriber) {
+          $tmp_subject = $subject;
+          $tmp_body_html = $body_html;
+          $tmp_body_text = $body_text;
+          $tmp_replace_dict = $replace_dict;
+          self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
+          self::prepare_mail_to_escape_html($tmp_body_html, $tmp_body_text, $tmp_replace_dict);
+          $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
+          self::prepare_mail_inline_css($tmp_body_html);
+
+          if (self::$error['replace_token']) {
+            $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')';
+            self::$error['replace_token'] = 0;
+          }
+          else {
+            $to = $receiver_if_different_from_subscribers ?? $subscriber;
+            $err = self::send_mail($from, $to, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_attachments);
+            if (is_null($err)) {
+              // SUCCESS
+              $out_num_mails_sent++;
+            }
+            else {
+              $out_errors[] = $err;
+            }
+          }
+        }
+        if (!empty($token_errors)) {
+          $out_errors[] = sprintf(__('Die Nachricht enthält Abonnenten-Platzhalter-Fehler.', 'LL_mailer'), $token_errors[0]) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') . implode("<br />", $token_errors);
+        }
+      }
+    }
+    return array($out_errors, $out_num_mails_sent, $out_post);
+  }
+  
+  static function prepare_and_send_mail($msg_slug, $subscriber_mail, $is_abo_mail = true, $post_id = null, $receiver_if_different_from_subscriber = null)
+  {
+    list($error, $receiver) = self::prepare_receiver($subscriber_mail);
+    if (!is_null($error)) {
+      return $error;
+    }
+    list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($msg_slug, array($receiver), $is_abo_mail, $post_id, $receiver_if_different_from_subscriber);
+    if (!empty($errors)) {
+      return implode('<br />', $errors);
+    }
+    return false;
   }
   
   static function testmail($request)
   {
+    $post_id = $request['post'] ?: null;
     if (isset($request['send'])) {
-      $error = self::prepare_and_send_mail(
-        $request['msg'],
-        $request['to'],
-        $request['post'] ?: null);
-      if ($error === false) {
-        return __('Testnachricht gesendet.', 'LL_mailer');
-      }
-      else {
-        return $error;
-      }
+      $error = self::prepare_and_send_mail($request['msg'], $request['to'], !is_null($post_id), $post_id);
+      return $error ?: __('Testnachricht gesendet.', 'LL_mailer');
     }
     else if (isset($request['preview'])) {
       $mail_or_error = self::prepare_mail(
         $request['msg'],
         $request['to'],
-        $request['post'] ?: null,
-        true,
+        !is_null($post_id),
+        $post_id,
         true,
         false,
         'preview');
-      if (is_string($mail_or_error)) return array('error' => $mail_or_error);
+      if (is_string($mail_or_error)) {
+        return array('error' => $mail_or_error);
+      }
       else {
         list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
         return array('subject' => $subject, 'html' => $body_html, 'text' => $body_text, 'attachments' => $attachments, 'replace_dict' => $replace_dict, 'error' => null);
@@ -923,63 +1023,15 @@ class LL_mailer
       switch ($request['to']) {
         case 'all':
           $msg = get_option(self::option_new_post_msg);
-          $errors = [];
-          $txt_goto_message = __('Zur Nachricht', 'LL_mailer');
-          $edit_url = self::admin_url() . self::admin_page_message_edit . $msg;
+          $errors = array();
           $num_mails_sent = 0;
+          $post = null;
           if (!$msg) {
             $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
           }
           else {
-            $mail_or_error = self::prepare_mail($msg, null, $request['post'], true, false, false, false);
-            if (is_string($mail_or_error)) {
-              $errors[] = $mail_or_error;
-            }
-            if (self::$error['replace_token']) {
-              $errors[] = sprintf(__('Die Nachricht enthält %d Platzhalter-Fehler.', 'LL_mailer'), self::$error['replace_token']) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für alle Abonnenten <b>abgebrochen</b>.', 'LL_mailer');
-            }
-            if (empty($errors)) {
-              list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $post) = $mail_or_error;
-
-              $from = self::get_sender();
-              if (empty($from[self::subscriber_attribute_mail]) || empty($from[self::subscriber_attribute_name]))
-              {
-                $errors[] = __('Nachricht(en) nicht gesendet. Absender-Name oder E-Mail wurden in den Einstellungen nicht angegeben.', 'LL_mailer');
-              }
-              else {
-
-                $subscribers = self::db_get_subscribers('*', true);
-                $token_errors = [];
-                foreach ($subscribers as $subscriber) {
-                  $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
-                  if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
-                    continue;
-                  }
-                  $num_mails_sent++;
-
-                  $tmp_subject = $subject;
-                  $tmp_body_html = $body_html;
-                  $tmp_body_text = $body_text;
-                  $tmp_replace_dict = $replace_dict;
-                  self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
-                  self::prepare_mail_to_escape_html($tmp_body_html, $tmp_body_text, $tmp_replace_dict);
-                  $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
-                  self::prepare_mail_inline_css($tmp_body_html);
-
-                  if (self::$error['replace_token']) {
-                    $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')';
-                    self::$error['replace_token'] = 0;
-                  }
-                  else {
-                    $err = self::send_mail($from, $subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_attachments);
-                    if ($err) $errors[] = $err;
-                  }
-                }
-                if (!empty($token_errors)) {
-                  $errors[] = sprintf(__('Die Nachricht enthält Abonnenten-Platzhalter-Fehler.', 'LL_mailer'), $token_errors[0]) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') . implode("<br />", $token_errors);
-                }
-              }
-            }
+            $subscribers = self::db_get_subscribers('*', true, true);
+            list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($msg, $subscribers, true, $request['post']);
           }
           if (!empty($errors)) {
             self::message(sprintf("Fehler für Post-Nachricht <a href=\"%s\">%s</a>: ", get_permalink($request['post']), get_the_title($request['post'])) . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
@@ -1007,7 +1059,7 @@ class LL_mailer
       $admin_notification_msg = get_option(self::option_confirmed_admin_msg);
       if ($admin_notification_msg !== false) {
         $admin_mail = self::get_sender();
-        $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, null, $admin_mail);
+        $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, false, null, $admin_mail);
         if ($error !== false) {
           self::message($error);
         }
@@ -1062,12 +1114,13 @@ class LL_mailer
           $captcha_failed = __('Bitte bestätige, dass du kein Roboter bist.', 'LL_mailer');
         }
         if (is_null($captcha_failed)) {
-          $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(['http' => [
-            'method' => 'POST',
-            'content' => http_build_query([
-              'secret' => $recaptcha_secret_key,
-              'response' => $_POST['g-recaptcha-response']
-            ])]]));
+          $recaptcha_result = file_get_contents('https://www.google.com/recaptcha/api/siteverify', false, stream_context_create(
+            array('http' => array(
+              'method' => 'POST',
+              'content' => http_build_query(array(
+                'secret' => $recaptcha_secret_key,
+                'response' => $_POST['g-recaptcha-response']
+              ))))));
           $recaptcha_result = json_decode($recaptcha_result);
           if (!$recaptcha_result->success) {
             $captcha_failed = __('Oh oh. Unser Test sagt, du bist ein Roboter.', 'LL_mailer');
@@ -1097,7 +1150,7 @@ class LL_mailer
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
       if ($confirmation_msg !== false) {
-        $error = self::prepare_and_send_mail($confirmation_msg, $new_subscriber[self::subscriber_attribute_mail]);
+        $error = self::prepare_and_send_mail($confirmation_msg, $new_subscriber[self::subscriber_attribute_mail], false);
         if ($error === false) {
           $confirmation_sent_page = get_option(self::option_form_submitted_page);
           if ($confirmation_sent_page !== false) {
@@ -1158,7 +1211,7 @@ class LL_mailer
         $admin_notification_msg = get_option(self::option_unsubscribed_admin_msg);
         if ($admin_notification_msg !== false) {
           $admin_mail = self::get_sender();
-          $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, null, $admin_mail);
+          $error = self::prepare_and_send_mail($admin_notification_msg, $subscriber_mail, false, null, $admin_mail);
           if ($error !== false) {
             self::message($error);
           }
@@ -1235,12 +1288,6 @@ class LL_mailer
             '<a href="https://wordpress.org/support/article/custom-fields/" target="_blank">?</a>',
             '<code>' . implode('</code>, <code>', self::token_POST_META['example']) . '</code>')?>
         </td>
-      </tr><tr>
-        <td><?=self::list_item?></td>
-        <td><code><?=self::token_IN_NEW_POST_MAIL['html']?></code></td>
-        <td>
-          <?=__('Ein Textbereich, der nur in E-Mails zu neuen Posts enthalten sein soll, z.B. für einen Abmelden-Link.', 'LL_mailer')?>
-        </td>
       </tr>
 
       <tr><td colspan=2><?=__('In allen E-Mails:', 'LL_mailer')?></td></tr>
@@ -1261,17 +1308,25 @@ class LL_mailer
         </td>
       </tr><tr>
         <td><?=self::list_item?></td>
+        <td><code><?=self::token_ESCAPE_HTML['html']?></code></td>
+        <td>
+          <?=__('Ein Textbereich, in dem Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) nicht als HTML-Code interpretiert werden sollen.', 'LL_mailer')?>
+        </td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
+        <td><code><?=self::token_IN_ABO_MAIL['html']?></code></td>
+        <td>
+          <?=__('Ein Textbereich, der nur in E-Mails zu neuen Posts enthalten sein soll, z.B. für einen Abmelden-Link.', 'LL_mailer')?>
+        </td>
+      </tr><tr>
+        <td><?=self::list_item?></td>
         <td><code><?=self::token_CONFIRMATION_URL['html']?></code></td>
         <td><?=__('URL für Bestätigungs-Link bei der Anmeldung zum Abo.', 'LL_mailer')?></td>
       </tr><tr>
         <td><?=self::list_item?></td>
         <td><code><?=self::token_UNSUBSCRIBE_URL['html']?></code></td>
-        <td><?=__('URL zur Abmeldung vom Abo.', 'LL_mailer')?></td>
-      </tr><tr>
-        <td><?=self::list_item?></td>
-        <td><code><?=self::token_ESCAPE_HTML['html']?></code></td>
         <td>
-          <?=__('Ein Textbereich, in dem Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) nicht als HTML-Code interpretiert werden sollen.', 'LL_mailer')?>
+          <?=__('URL zur Abmeldung vom Abo.', 'LL_mailer')?>
         </td>
       </tr>
     </table>
