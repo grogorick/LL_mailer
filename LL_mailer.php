@@ -59,8 +59,8 @@ class LL_mailer
   const admin_page_subscribers              = self::_ . '_subscribers';
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
 
-  const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt|alt)="([^"]*)")?(\s+(fmt|alt)="([^"]*)")?';
-  const attr_fmt_alt_html                   = ' "<i>Attribut</i>" fmt="&percnt;s" alt=""';
+  const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
+  const attr_fmt_alt_html                   = ' "<i>Attribut</i>" {fmt="&percnt;s"} {alt=""} {escape-html} {nl2br}';
 
   const pattern_any_token                   = '/\[[^\]]*\]/';
 
@@ -89,7 +89,7 @@ class LL_mailer
                                                     'html'    => '[POST' . self::attr_fmt_alt_html . ']',
                                                     'filter'  => self::_ . '_POST_attribute',
                                                     'example' => array('[POST "post_title"]',
-                                                                       '[POST "post_excerpt" alt="&lt;i&gt;Kein Auszug verfügbar&lt;/i&gt;"]')
+                                                                       '[POST "post_excerpt" alt="" escape-html nl2br]')
                                                     );
   const token_POST_META                     = array('pattern' => '/\[POST_META' . self::attr_fmt_alt . '\]/',
                                                     'html'    => '[POST_META' . self::attr_fmt_alt_html . ']',
@@ -556,29 +556,54 @@ class LL_mailer
         }
         else {
           $attr = $match[$ATTR];
-          foreach (array(3, 6) as $i) switch ($match[$i]) {
+          $fmt = null;
+          $alt = null;
+          $escape_html = null;
+          $nl2br = null;
+          foreach (array(3, 6, 9, 11) as $i) if (array_key_exists($i, $match)) switch ($match[$i]) {
             case 'fmt' :
               $fmt = $match[$i + 1];
               break;
             case 'alt' :
               $alt = $match[$i + 1];
               break;
+            case 'escape-html' :
+              $escape_html = true;
+              break;
+            case 'nl2br' :
+              $nl2br = true;
+              break;
           }
 
           list($replace_value, $error) = $get_value_by_attr($attr, $match[$FULL]);
 
           if (!empty($replace_value)) {
-            $replace_value_fmt = isset($fmt) ? sprintf($fmt, $replace_value) : $replace_value;
-            $replacement = apply_filters($token['filter'], $replace_value_fmt, $replace_value, $fmt, $alt, $attr, $post, $is_html);
-          } else if (isset($alt)) {
+            $replacement = $replace_value;
+            if (!is_null($fmt)) {
+              $replacement = sprintf($fmt, $replacement);
+            }
+            if (!is_null($escape_html)) {
+              $replacement = htmlspecialchars($replacement);
+            }
+            if (!is_null($nl2br)) {
+              $replacement = nl2br($replacement);
+            }
+          } else if (!is_null($alt)) {
             $replacement = $alt;
           } else {
             $replacement = $error;
           }
 
-          if ($is_html) {
-            $replacement = nl2br($replacement);
-          }
+          $replacement = apply_filters($token['filter'], $replacement, array(
+            'plain_replace_value' => $replace_value,
+            'error' => $error,
+            'attr' => $attr,
+            'fmt' => $fmt,
+            'alt' => $alt,
+            'escape-html' => $escape_html,
+            'nl2br' => $nl2br,
+            'is_html' => $is_html,
+            'post' => $post));
 
           if (!is_null($replace_dict)) {
             $replace_dict['inline'][$html_or_text][$match[$FULL]] = $replacement;
@@ -1327,6 +1352,15 @@ class LL_mailer
         <td><code><?=self::token_UNSUBSCRIBE_URL['html']?></code></td>
         <td>
           <?=__('URL zur Abmeldung vom Abo.', 'LL_mailer')?>
+        </td>
+      </tr>
+
+      <tr><td colspan=2><?=__('Infos:', 'LL_mailer')?></td></tr>
+      <tr>
+        <td><?=self::list_item?></td>
+        <td><code>[... {Attribut} ...]</code></td>
+        <td>
+          <?=__('Optionales Attribut in Platzhaltern.', 'LL_mailer')?>
         </td>
       </tr>
     </table>
