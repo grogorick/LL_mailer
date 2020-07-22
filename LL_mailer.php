@@ -585,11 +585,13 @@ class LL_mailer
             if (!is_null($fmt)) {
               $replacement = sprintf($fmt, $replacement);
             }
-            if (!is_null($escape_html)) {
-              $replacement = htmlspecialchars($replacement);
-            }
-            if (!is_null($nl2br)) {
-              $replacement = nl2br($replacement);
+            if ($is_html) {
+              if (!is_null($escape_html)) {
+                $replacement = htmlspecialchars($replacement);
+              }
+              if (!is_null($nl2br)) {
+                $replacement = nl2br($replacement);
+              }
             }
           } else if (!is_null($alt)) {
             $replacement = $alt;
@@ -1344,7 +1346,7 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code><?=self::token_IN_ABO_MAIL['html']?></code></td>
         <td>
-          <?=__('Ein Textbereich, der nur in E-Mails zu neuen Posts enthalten sein soll, z.B. für einen Abmelden-Link.', 'LL_mailer')?>
+          <?=__('Ein Textbereich, der nur in regulären Abo-E-Mails und nicht in Anmeldebestätigungs-Emails enthalten sein soll, z.B. für einen Abo-abmelden-Link.', 'LL_mailer')?>
         </td>
       </tr><tr>
         <td><?=self::list_item?></td>
@@ -1358,12 +1360,33 @@ class LL_mailer
         </td>
       </tr>
 
-      <tr><td colspan=2><?=__('Infos:', 'LL_mailer')?></td></tr>
+      <tr><td colspan=2><?=__('Optionale Attribute in Platzhaltern:', 'LL_mailer')?></td></tr>
       <tr>
         <td><?=self::list_item?></td>
-        <td><code>[... {Attribut} ...]</code></td>
+        <td><code>{fmt="%s"}</code></td>
         <td>
-          <?=__('Optionales Attribut in Platzhaltern.', 'LL_mailer')?>
+          <?=sprintf(__('Formatierung (%s) von eingesetzten Attributen.', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.sprintf.php">?</a>')?>
+        </td>
+      </tr>
+      <tr>
+        <td><?=self::list_item?></td>
+        <td><code>{alt=""}</code></td>
+        <td>
+          <?=__('Alternativtext, falls angeforderte Attribute (für den Nutzer/Post) nicht vorhanden sind.', 'LL_mailer')?>
+        </td>
+      </tr>
+      <tr>
+        <td><?=self::list_item?></td>
+        <td><code>{escape-html}</code></td>
+        <td>
+          <?=sprintf(__('HTML-spezifische Sonderzeichen in anzeigbaren Text umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.htmlspecialchars.php">?</a>')?>
+        </td>
+      </tr>
+      <tr>
+        <td><?=self::list_item?></td>
+        <td><code>{nl2br}</code></td>
+        <td>
+          <?=sprintf(__('Zeilenumbrüche in HTML-Zeilenumbrüche umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.nl2br.php">?</a>')?>
         </td>
       </tr>
     </table>
