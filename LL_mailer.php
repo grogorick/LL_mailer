@@ -46,6 +46,7 @@ class LL_mailer
   const meta_ip                             = 'ip';
   const meta_submitted_at                   = 'submitted_at';
   const meta_disabled                       = 'disabled';
+  const meta_test_receiver                  = 'test_receiver';
 
   const table_templates                     = self::_ . '_templates';
   const table_messages                      = self::_ . '_messages';
@@ -406,16 +407,18 @@ class LL_mailer
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
 
-  static function db_get_subscribers($what, $confirmed_only = false, $active_only = false)
+  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false)
   {
-    $subscribers = self::_db_select(self::table_subscribers, $what, $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
-    if (!$active_only) {
-      return $subscribers;
+    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
+    if ($active_only || $test_receiver_only) {
+      $subscribers = array_filter($subscribers, function($subscriber) use ($active_only, $test_receiver_only) {
+        $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
+        return
+          (!$active_only || !isset($meta[self::meta_disabled]) || !$meta[self::meta_disabled]) &&
+          (!$test_receiver_only || (isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]));
+      });
     }
-    return array_filter($subscribers, function($subscriber) {
-      $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
-      return !(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]);
-    });
+    return $subscribers;
   }
 
   static function db_subscribers_add_attribute($attr)
@@ -1055,7 +1058,7 @@ class LL_mailer
             $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
           }
           else {
-            $subscribers = self::db_get_subscribers('*', true, true);
+            $subscribers = self::db_get_subscribers(true, true);
             list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($msg, $subscribers, true, $request['post']);
           }
           if (!empty($errors)) {
@@ -2187,7 +2190,7 @@ class LL_mailer
         <br />
 
 <?php
-        $subscribers = self::db_get_subscribers(array(self::subscriber_attribute_mail, self::subscriber_attribute_name));
+        $subscribers = self::db_get_subscribers(false, false, true);
         $test_posts = new WP_Query(array(
           'post_type' => 'post',
 //          'orderby' => array(
@@ -2197,7 +2200,7 @@ class LL_mailer
         ));
         if (empty($subscribers)) {
 ?>
-          <i><?=__('Es wird mindestens ein Abonnent für die Empfänger-Auswahl benötigt.', 'LL_mailer')?></i>
+          <i><?=__('Es wird mindestens ein Abonnent benötigt, der als Testempfänger markiert ist.', 'LL_mailer')?></i>
 <?php
         }
         else {
@@ -2479,9 +2482,10 @@ class LL_mailer
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
             <th><?=__('Anmeldung am', 'LL_mailer')?></th>
+            <th><?=__('Status', 'LL_mailer')?></th>
           </tr>
 <?php
-          $subscribers = self::db_get_subscribers('*');
+          $subscribers = self::db_get_subscribers();
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
           usort($subscribers, function($a, $b) {
             return (intval(empty($b['subscribed_at'])) - intval(empty($a['subscribed_at']))) ?: strcmp(strtolower($a[self::subscriber_attribute_mail]), strtolower($b[self::subscriber_attribute_mail]));
@@ -2496,7 +2500,6 @@ class LL_mailer
               <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>" class="row-title">
                 <?=$subscriber[self::subscriber_attribute_name] ?? ('<i style="font-weight: normal;">' . __('kein Name', 'LL_mailer') . '</i>')?>
               </a>
-              <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? '(' . __('deaktiviert', 'LL_mailer') . ')' : ''?>
             </td>
             <td>
               <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
@@ -2505,8 +2508,9 @@ class LL_mailer
             </td>
             <td>
 <?php
-              if (!empty($subscriber['subscribed_at']))
+              if (!empty($subscriber['subscribed_at'])) {
                 echo $subscriber['subscribed_at'];
+              }
               else {
                 if (isset($meta[self::meta_submitted_at])) {
                   echo date('Y-m-d H:i:s', $meta[self::meta_submitted_at]) . ' (' . __('unbestätigt', 'LL_mailer') . ')';
@@ -2515,6 +2519,18 @@ class LL_mailer
                   echo __('unbestätigt', 'LL_mailer');
                 }
               }
+?>
+            </td>
+            <td>
+<?php
+              $status = array();
+              if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
+                $status[] = __('deaktiviert', 'LL_mailer');
+              }
+              if (isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) {
+                $status[] = __('Testempfänger', 'LL_mailer');
+              }
+              echo implode(', ', $status);
 ?>
             </td>
           </tr>
@@ -2560,6 +2576,12 @@ class LL_mailer
               <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></td>
               <td>
                 <input type="checkbox" name="meta_<?=self::meta_disabled?>" <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? 'checked' : ''?> />
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><?=__('Testempfänger', 'LL_mailer')?></td>
+              <td>
+                <input type="checkbox" name="meta_<?=self::meta_test_receiver?>" <?=(isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) ? 'checked' : ''?> />
               </td>
             </tr>
           </table>
@@ -2670,6 +2692,12 @@ class LL_mailer
           }
           else if (isset($meta[self::meta_disabled])) {
             unset($meta[self::meta_disabled]);
+          }
+          if (isset($_POST['meta_' . self::meta_test_receiver])) {
+            $meta[self::meta_test_receiver] = true;
+          }
+          else if (isset($meta[self::meta_test_receiver])) {
+            unset($meta[self::meta_test_receiver]);
           }
           $subscriber[self::subscriber_attribute_meta] = addslashes(json_encode($meta));
 
