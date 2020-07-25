@@ -61,7 +61,7 @@ class LL_mailer
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
-  const attr_fmt_alt_html                   = ' "<i>Attribut</i>" {fmt="&percnt;s"} {alt=""} {escape-html} {nl2br}';
+  const attr_fmt_alt_html                   = ' "<i>Attribut-Slug</i>" {fmt="&percnt;s"} {alt=""} {escape-html} {nl2br}';
 
   const pattern_any_token                   = '/\[[^\]]*\]/';
 
@@ -107,7 +107,7 @@ class LL_mailer
                                                     'html'    => '[LL_mailer_SUBSCRIPTION_FORM html_attr=""]'
                                                     );
   const shortcode_SUBSCRIBER_ATTRIBUTE      = array('code'    => 'LL_mailer_SUBSCRIBER',
-                                                    'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut&nbsp;Slug</i>"]'
+                                                    'html'    => '[LL_mailer_SUBSCRIBER "<i>Attribut-Slug</i>"]'
                                                     );
 
   const robot_questions = array(array('Welche Farbe haben Bananen?', 'gelb'),
@@ -1726,7 +1726,7 @@ class LL_mailer
               }
             </style>
             <table class="<?=self::_?>_attributes_table">
-            <tr><td><?=__('Attribut Label', 'LL_mailer')?></td><td><?=__('Attribut Slug', 'LL_mailer')?></td></tr>
+            <tr><td><?=__('Attribut-Label', 'LL_mailer')?></td><td><?=__('Attribut-Slug', 'LL_mailer')?></td></tr>
 <?php
             foreach ($attribute_groups as $group => &$attrs) {
               foreach ($attrs as $attr => $attr_label) {
@@ -2254,7 +2254,7 @@ class LL_mailer
             &nbsp; <span class="description" id="<?=self::_?>_testmail_preview_response"></span>
           </form>
           <p>
-            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
+            <?php submit_button(__('E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
             &nbsp; <span class="description" id="<?=self::_?>_testmail_send_response"></span>
           </p>
           <script>
