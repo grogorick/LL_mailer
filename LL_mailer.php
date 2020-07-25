@@ -1345,7 +1345,7 @@ class LL_mailer
         <td><code><?=self::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
         <td>
           <?=sprintf(__('Abonnenten-Attribut aus den Einstellungen (%s), z.B. %s.', 'LL_mailer'),
-            '<a href="' . self::admin_url() . self::admin_page_settings . '" target="_blank">?</a>',
+            '<a href="' . self::admin_url() . self::admin_page_settings . '#subscriber-attributes">?</a>',
             '<code>' . implode('</code>, <code>', self::token_SUBSCRIBER_ATTRIBUTE['example']) . '</code>')?>
         </td>
       </tr><tr>
@@ -1359,7 +1359,7 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code><?=self::token_ESCAPE_HTML['html']?></code></td>
         <td>
-          <?=__('Ein Textbereich, in dem Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) nicht als HTML-Code interpretiert werden sollen.', 'LL_mailer')?>
+          <?=sprintf(__('Ein Textbereich, in dem HTML-spezifische Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) in anzeigbaren Text umgewandelt werden (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.htmlspecialchars.php" target="_blank">?</a>')?>
         </td>
       </tr><tr>
         <td><?=self::list_item?></td>
@@ -1384,7 +1384,7 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code>{fmt="%s"}</code></td>
         <td>
-          <?=sprintf(__('Formatierung (%s) von eingesetzten Attributen.', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.sprintf.php">?</a>')?>
+          <?=sprintf(__('Formatierung (%s) von eingesetzten Attributen.', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.sprintf.php" target="_blank">?</a>')?>
         </td>
       </tr>
       <tr>
@@ -1398,14 +1398,14 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code>{escape-html}</code></td>
         <td>
-          <?=sprintf(__('HTML-spezifische Sonderzeichen in anzeigbaren Text umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.htmlspecialchars.php">?</a>')?>
+          <?=sprintf(__('HTML-spezifische Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) in anzeigbaren Text umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.htmlspecialchars.php" target="_blank">?</a>')?>
         </td>
       </tr>
       <tr>
         <td><?=self::list_item?></td>
         <td><code>{nl2br}</code></td>
         <td>
-          <?=sprintf(__('Zeilenumbrüche in HTML-Zeilenumbrüche umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.nl2br.php">?</a>')?>
+          <?=sprintf(__('Zeilenumbrüche in HTML-Zeilenumbrüche umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.nl2br.php" target="_blank">?</a>')?>
         </td>
       </tr>
     </table>
@@ -1728,7 +1728,7 @@ class LL_mailer
       <hr />
       <table class="form-table">
         <tr>
-          <th scope="row"><?=__('Abonnenten-Attribute', 'LL_mailer')?></th>
+          <th scope="row" id="subscriber-attributes"><?=__('Abonnenten-Attribute', 'LL_mailer')?></th>
           <td>
 <?php
             $attributes = self::get_option_array(self::option_subscriber_attributes);
@@ -1768,7 +1768,7 @@ class LL_mailer
                     <input type="hidden" name="action" value="<?=self::_?>_settings_action" />
                     <?php wp_nonce_field(self::_ . '_subscriber_attribute_delete'); ?>
                     <input type="hidden" name="attribute" value="<?=$attr?>" />
-                    <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
+                    <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\nDie entsprechenden Daten der Abonnenten gehen dabei verloren.\')')); ?>
                   </form>
 <?php
                 }
@@ -2006,7 +2006,7 @@ class LL_mailer
             <input type="hidden" name="action" value="<?=self::_?>_template_action" />
             <?php wp_nonce_field(self::_ . '_template_delete'); ?>
             <input type="hidden" name="template_slug" value="<?=$template_slug?>" />
-            <?php submit_button(__('Vorlage löschen', 'LL_mailer'), ''); ?>
+            <?php submit_button(__('Vorlage löschen', 'LL_mailer'), '', 'submit', true, array('onclick' => 'return confirm(\'Wirklich löschen?\nDie Vorlage kann nicht wiederhergestellt werden.\')')); ?>
           </form>
 <?php
         }
@@ -2229,7 +2229,7 @@ class LL_mailer
 
         <hr />
 
-        <h1><?=__('Testnachricht', 'LL_mailer')?></h1>
+        <h1><?=__('Optionen für Vorschau / Testnachricht', 'LL_mailer')?></h1>
         <br />
 
 <?php
@@ -2248,34 +2248,40 @@ class LL_mailer
         }
         else {
 ?>
-          <form id="<?=self::_?>_testmail">
+          <div id="<?=self::_?>_testmail">
+            <p><span class="description" id="<?=self::_?>_testmail_preview_response"></span></p>
             <input type="hidden" name="msg" value="<?=$message_slug?>" />
-            <select id="to" name="to">
+            <p>
+              <select id="to" name="to">
 <?php
             foreach ($subscribers as &$subscriber) {
 ?>
-              <option value="<?=$subscriber[self::subscriber_attribute_mail]?>"><?=$subscriber[self::subscriber_attribute_name] . ' / ' . $subscriber[self::subscriber_attribute_mail]?></option>
+                <option value="<?=$subscriber[self::subscriber_attribute_mail]?>"><?=$subscriber[self::subscriber_attribute_name] . ' / ' . $subscriber[self::subscriber_attribute_mail]?></option>
 <?php
             }
 ?>
-            </select>
-            <select id="post" name="post">
+              </select>
+            </p>
+            <p>
+              <select id="post" name="post">
 <?php
             foreach ($test_posts->posts as $post) {
               $cats = wp_get_post_categories($post->ID);
               $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
 ?>
-              <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
+                <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
 <?php
             }
 ?>
-              <option value="" style="color: gray;">(<?=__('Kein Test-Post')?>)</option>
-            </select>
-            <input type="checkbox" id="is-abo-mail" name="is-abo-mail" checked />
-            &nbsp; <span class="description" id="<?=self::_?>_testmail_preview_response"></span>
+                <option value="" style="color: gray;">(<?=__('Kein Test-Post')?>)</option>
+              </select>
+            </p>
+            <p>
+              <input type="checkbox" id="is-abo-mail" name="is-abo-mail" checked /><label for="is-abo-mail"> Ist Abo E-Mail</label>
+            </p>
           </form>
           <p>
-            <?php submit_button(__('E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
+            <?php submit_button(__('Test-E-Mail senden', 'LL_mailer'), '', 'send_testmail', false); ?>
             &nbsp; <span class="description" id="<?=self::_?>_testmail_send_response"></span>
           </p>
           <script>
@@ -2428,7 +2434,7 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=self::_?>_message_action" />
           <?php wp_nonce_field(self::_ . '_message_delete'); ?>
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
-          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), ''); ?>
+          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), '', 'submit', true, array('onclick' => 'return confirm(\'Wirklich löschen?\nDie Nachricht kann nicht wiederhergestellt werden.\')')); ?>
         </form>
 <?php
         }
@@ -2775,7 +2781,7 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=self::_?>_subscriber_action" />
           <?php wp_nonce_field(self::_ . '_subscriber_delete'); ?>
           <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
-          <?php submit_button(__('Abonnent löschen', 'LL_mailer'), ''); ?>
+          <?php submit_button(__('Abonnent löschen', 'LL_mailer'), '', 'submit', true, array('onclick' => 'return confirm(\'Wirklich löschen?\nDie Daten des Abonnenten können nicht wiederhergestellt werden.\')')); ?>
         </form>
 <?php
       } break;
