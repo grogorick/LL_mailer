@@ -57,6 +57,7 @@ class LL_mailer
   const admin_page_template_edit            = self::_ . '_templates&edit=';
   const admin_page_messages                 = self::_ . '_messages';
   const admin_page_message_edit             = self::_ . '_messages&edit=';
+  const admin_page_message_abo_mail_preview = self::_ . '_messages&abo_mail_preview=';
   const admin_page_subscribers              = self::_ . '_subscribers';
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
 
@@ -184,14 +185,7 @@ class LL_mailer
     $msgs = self::get_option_array(self::option_msg);
     if (!empty($msgs)) {
       foreach ($msgs as $key => &$msg) {
-        $hide_class = ($msg[1]) ? ' ' . self::_ . '_sticky_message' : '';
-        echo '<div class="notice notice-info' . $hide_class . '">';
-        if ($msg[1]) {
-          echo '<p style="float: right; padding-left: 20px;">' .
-                '(<a class="' . self::_ . '_sticky_message_hide_link" href="' . self::json_url() . 'get?hide_message=' . urlencode($msg[1]) . '">' . __('Ausblenden', 'LL_mailer') . '</a>)' .
-               '</p>';
-        }
-        echo '<p>' . nl2br($msg[0]) . '</p></div>';
+        self::inline_message($msg[0], $msg[1]);
         if (!$msg[1]) {
           unset($msgs[$key]);
         }
@@ -220,17 +214,29 @@ class LL_mailer
       }
     }
   }
-  
-  
-  
+
+  static function inline_message($msg, $sticky_id = false)
+  {
+    $hide_class = ($sticky_id) ? ' ' . self::_ . '_sticky_message' : '';
+    echo '<div class="notice notice-info' . $hide_class . '">';
+    if ($sticky_id) {
+      echo '<p style="float: right; padding-left: 20px;">' .
+        '(<a class="' . self::_ . '_sticky_message_hide_link" href="' . self::json_url() . 'get?hide_message=' . urlencode($sticky_id) . '">' . __('Ausblenden', 'LL_mailer') . '</a>)' .
+        '</p>';
+    }
+    echo '<p>' . nl2br($msg) . '</p></div>';
+  }
+
+
+
   static function array_zip($glue_key_value, $array, $glue_rows = null, $prefix_if_not_empty = '', $suffix_if_not_empty = '')
   {
     if (empty($array)) {
       return is_null($glue_rows) ? array() : '';
     }
     if (is_null($glue_rows)) {
-      array_walk($array, function(&$val, $key) 
-                                use ($glue_key_value, $suffix_if_not_empty, $prefix_if_not_empty) 
+      array_walk($array, function(&$val, $key)
+                                use ($glue_key_value, $suffix_if_not_empty, $prefix_if_not_empty)
                                 { $val = $prefix_if_not_empty . $key . $glue_key_value . $val . $suffix_if_not_empty; });
       return $array;
     }
@@ -1024,14 +1030,14 @@ class LL_mailer
   {
     $post_id = $request['post'] ?: null;
     if (isset($request['send'])) {
-      $error = self::prepare_and_send_mail($request['msg'], $request['to'], !is_null($post_id), $post_id);
+      $error = self::prepare_and_send_mail($request['msg'], $request['to'], $request['is-abo-mail'], $post_id);
       return $error ?: __('Testnachricht gesendet.', 'LL_mailer');
     }
     else if (isset($request['preview'])) {
       $mail_or_error = self::prepare_mail(
         $request['msg'],
         $request['to'],
-        !is_null($post_id),
+        $request['is-abo-mail'],
         $post_id,
         true,
         false,
@@ -1047,28 +1053,24 @@ class LL_mailer
     return null;
   }
 
-  static function new_post_mail($request)
+  static function send_abo_mails($request)
   {
-    if (isset($request['post']) && isset($request['to'])) {
+    if (isset($request['msg']) && isset($request['to'])) {
       switch ($request['to']) {
         case 'all':
-          $msg = get_option(self::option_new_post_msg);
+          $msg = $request['msg'];
           $errors = array();
           $num_mails_sent = 0;
           $post = null;
-          if (!$msg) {
-            $errors[] = __('In den Einstellungen ist keine Nachticht für Neuer-Post-E-Mails ausgewählt.', 'LL_mailer');
-          }
-          else {
-            $subscribers = self::db_get_subscribers(true, true);
-            list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($msg, $subscribers, true, $request['post']);
+          $subscribers = self::db_get_subscribers(true, true);
+          list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers, true, $request['post']);
+          $post_link = '<a href="' . get_permalink($request['post']) . '">' . get_the_title($request['post']) . '</a>';
+          if ($num_mails_sent > 0) {
+            self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . $post_link . '</b>', $num_mails_sent));
+            self::hide_message(self::msg_id_new_post_published($post->ID));
           }
           if (!empty($errors)) {
-            self::message(sprintf("Fehler für Post-Nachricht <a href=\"%s\">%s</a>: ", get_permalink($request['post']), get_the_title($request['post'])) . implode('<br />', $errors), self::msg_id_new_post_mail_failed($msg, $request['post']));
-          }
-          else {
-            self::message(sprintf(__('E-Mails zum Post %s wurden an %d Abonnent(en) versandt.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>', $num_mails_sent));
-            self::hide_message(self::msg_id_new_post_published($post->ID));
+            self::message(sprintf("Fehler für Post-Nachricht %s:", '<b>' . $post_link . '</b>') . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
           }
           wp_redirect(wp_get_referer());
           exit;
@@ -1270,12 +1272,29 @@ class LL_mailer
 
   static function post_status_transition($new_status, $old_status, $post)
   {
-    if ($post->post_type == 'post' && $new_status == 'publish' && $old_status != 'publish' && get_option(self::option_new_post_msg) !== false) {
-      self::message(
-        sprintf(__('Du hast den Post %s veröffentlicht.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>') .
-          ' &nbsp; <a href="' . self::json_url() . 'new-post-mail?to=all&post=' . $post->ID . '">' . __('E-Mails an Abonnenten jetzt senden', 'LL_mailer') . '</a>',
-        self::msg_id_new_post_published($post->ID));
+    if ($post->post_type == 'post' && $new_status == 'publish' && $old_status != 'publish') {
+      $url = self::generate_new_post_abo_mail($post->ID);
+      if ($url) {
+        self::message(
+          sprintf(__('Du hast den Post %s veröffentlicht.', 'LL_mailer'), '<b>' . get_the_title($post) . '</b>') .
+          ' &nbsp; <a href="' . $url . '">' . __('E-Mails an Abonnenten jetzt senden', 'LL_mailer') . '</a>',
+          self::msg_id_new_post_published($post->ID));
+      }
     }
+  }
+
+  static function generage_abo_mail_url($msg, $post_id)
+  {
+    return self::admin_url() . self::admin_page_message_abo_mail_preview . $msg . '&to=all&post=' . $post_id;
+  }
+
+  static function generate_new_post_abo_mail($post_id)
+  {
+    $msg = get_option(self::option_new_post_msg);
+    if ($msg) {
+      return self::generage_abo_mail_url($msg, $post_id);
+    }
+    return false;
   }
 
 
@@ -1519,7 +1538,7 @@ class LL_mailer
               <a id="<?=self::option_confirmation_msg?>_link" href="<?=self::admin_url() . self::admin_page_message_edit . urlencode($selected_msg)?>">(<?=__('Zur Nachricht', 'LL_mailer')?>)</a>
               <p class="description">
                 <?=__('Wird aktiviert, sobald eine Nachricht ausgewählt ist', 'LL_mailer')?><br />
-                <?=sprintf(__('Nutze <code>%s</code> um den Bestätigungs-Link einzufügen.', 'LL_mailer'), self::token_CONFIRMATION_URL['html'])?>
+                <?=sprintf(__('Nutze <code>%s</code> um den Bestätigungs-Link im Text einzufügen.', 'LL_mailer'), self::token_CONFIRMATION_URL['html'])?>
               </p>
             </td>
           </tr>
@@ -2058,6 +2077,7 @@ class LL_mailer
   {
     $sub_page = 'list';
     if (isset($_GET['edit'])) $sub_page = 'edit';
+    else if (isset($_GET['abo_mail_preview'])) $sub_page = 'abo_mail_preview';
 ?>
     <div class="wrap">
 <?php
@@ -2177,7 +2197,7 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <td <?=self::secondary_settings_label?>><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
+              <td <?=self::secondary_settings_label?>><?=__('Vorschau (HTML)', 'LL_mailer')?></td>
               <td>
                 <iframe id="body_html_preview" style="width: 100%; height: 200px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
                     self::html_prefix . $preview_body_html . self::html_suffix
@@ -2192,7 +2212,7 @@ class LL_mailer
               </td>
             </tr>
             <tr>
-              <td <?=self::secondary_settings_label?>><?=__('Vorschau (Text)', 'LL_mailer')?></th>
+              <td <?=self::secondary_settings_label?>><?=__('Vorschau (Text)', 'LL_mailer')?></td>
               <td>
                 <textarea disabled id="body_text_preview" style="width: 100%; color:black; background: white;" rows=10><?=$preview_body_text?></textarea>
               </td>
@@ -2251,6 +2271,7 @@ class LL_mailer
 ?>
               <option value="" style="color: gray;">(<?=__('Kein Test-Post')?>)</option>
             </select>
+            <input type="checkbox" id="is-abo-mail" name="is-abo-mail" checked />
             &nbsp; <span class="description" id="<?=self::_?>_testmail_preview_response"></span>
           </form>
           <p>
@@ -2331,15 +2352,18 @@ class LL_mailer
 
               var testmail_to_select = document.querySelector('#<?=self::_?>_testmail #to');
               var testmail_post_select = document.querySelector('#<?=self::_?>_testmail #post');
+              var testmail_is_abo_mail_select = document.querySelector('#<?=self::_?>_testmail #is-abo-mail');
               var testmail_preview_response_tag = document.querySelector('#<?=self::_?>_testmail_preview_response');
               var testmail_send_response_tag = document.querySelector('#<?=self::_?>_testmail_send_response');
               function request_message_preview() {
                 testmail_to_select.disabled = true;
                 testmail_post_select.disabled = true;
+                testmail_is_abo_mail_select.disabled = true;
                 testmail_preview_response_tag.innerHTML = '...';
-                jQuery.getJSON('<?=self::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
+                jQuery.getJSON('<?=self::json_url() . 'testmail?preview&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value + '&is-abo-mail=' + (testmail_is_abo_mail_select.checked ? 1 : 0), function (response) {
                   testmail_to_select.disabled = false;
                   testmail_post_select.disabled = false;
+                  testmail_is_abo_mail_select.disabled = false;
                   if (response.error !== null) {
                     testmail_preview_response_tag.innerHTML = response.error;
                   }
@@ -2354,12 +2378,13 @@ class LL_mailer
               }
               jQuery(testmail_to_select).on('input', request_message_preview);
               jQuery(testmail_post_select).on('input', request_message_preview);
+              jQuery(testmail_is_abo_mail_select).on('change', request_message_preview);
               request_message_preview();
               jQuery('#send_testmail').click(function (e) {
                 var select_tag = this;
                 select_tag.disabled = true;
                 testmail_send_response_tag.innerHTML = '...';
-                jQuery.getJSON('<?=self::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value, function (response) {
+                jQuery.getJSON('<?=self::json_url() . 'testmail?send&msg=' . $message_slug . '&to='?>' + encodeURIComponent(testmail_to_select.value) + '&post=' + testmail_post_select.value + '&is-abo-mail=' + (testmail_is_abo_mail_select.checked ? 1 : 0), function (response) {
                   select_tag.disabled = false;
                   testmail_send_response_tag.innerHTML = response;
                 });
@@ -2408,6 +2433,89 @@ class LL_mailer
 <?php
         }
       } break;
+
+      case 'abo_mail_preview':
+      {
+        $errors = [];
+        if (!isset($_GET['abo_mail_preview'])) {
+          $errors[] = __('Keine Nachricht angegeben', 'LL_mailer');
+        }
+        if (!isset($_GET['to'])) {
+          $errors[] = __('Kein Empfänger angegeben', 'LL_mailer');
+        }
+        if (empty($errors)) {
+          $msg = $_GET['abo_mail_preview'];
+          $post_id = $_GET['post'] ?: null;
+          $mail_or_error = self::prepare_mail(
+            $msg,
+            self::get_sender(),
+            true,
+            $post_id,
+            true,
+            true,
+            'preview');
+          if (is_string($mail_or_error)) {
+            $errors[] = $mail_or_error;
+          }
+        }
+        if (!empty($errors)) {
+          self::inline_message(implode('<br />', $errors));
+          break;
+        }
+
+        list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
+        ?>
+
+        <h1><?=__('Nachricht an Abonnenten senden', 'LL_mailer')?></h1>
+
+        <?php wp_nonce_field(self::_ . '_message_edit'); ?>
+        <input type="hidden" name="message_slug" value="<?=$msg?>" />
+        <table class="form-table">
+          <tr>
+            <th><?=__('Betreff', 'LL_mailer')?></th>
+            <td>
+              <input disabled id="subject_preview" type="text" value="<?=esc_attr($subject)?>" style="width: 100%; color: black; background: white;" />
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
+            <td>
+              <iframe id="body_html_preview" style="width: 100%; height: 500px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
+                  self::html_prefix . $body_html . self::html_suffix
+                )?>">
+              </iframe>
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Vorschau (Text)', 'LL_mailer')?></th>
+            <td>
+              <textarea disabled id="body_text_preview" style="width: 100%; height: 500px; color:black; background: white;"><?=$body_text?></textarea>
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Empfänger', 'LL_mailer')?></th>
+            <td>
+              <?php
+              $receivers = self::db_get_subscribers(true, true);
+              echo implode(', ', array_map(function($r) { return $r[self::subscriber_attribute_name]; }, $receivers));
+              ?>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <form method="post" action="admin-post.php">
+                <input type="hidden" name="action" value="<?=self::_?>_message_action" />
+                <?php wp_nonce_field(self::_ . '_send_abo_mail'); ?>
+                <input type="hidden" name="message_slug" value="<?=$msg?>" />
+                <input type="hidden" name="abo_mail_to" value="<?=$_GET['to']?>" />
+                <input type="hidden" name="abo_mail_post" value="<?=$post_id?>" />
+                <?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), 'primary', '', false); ?>
+              </form>
+            </td>
+          </tr>
+        </table>
+<?php
+      } break;
     }
 ?>
     </div>
@@ -2417,7 +2525,7 @@ class LL_mailer
   static function admin_page_message_action()
   {
     if (!empty($_POST) && isset($_POST['_wpnonce'])) {
-      $message_slug = $_POST['message_slug'];
+      $message_slug = $_POST['message_slug'] ?? '';
       if (!empty($message_slug)) {
         if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_message_add')) {
           $message_slug = sanitize_title($message_slug);
@@ -2459,6 +2567,14 @@ class LL_mailer
 
           self::message(sprintf(__('Nachricht <b>%s</b> gelöscht.', 'LL_mailer'), $message_slug));
           wp_redirect(self::admin_url() . self::admin_page_messages);
+          exit;
+        }
+
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_send_abo_mail')) {
+          self::send_abo_mails(array(
+            'msg' => $message_slug,
+            'post' => $_POST['abo_mail_post'],
+            'to' => $_POST['abo_mail_to']));
           exit;
         }
       }
@@ -2504,8 +2620,7 @@ class LL_mailer
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
-            <th><?=__('Anmeldung am', 'LL_mailer')?></th>
-            <th><?=__('Status', 'LL_mailer')?></th>
+            <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
           $subscribers = self::db_get_subscribers();
@@ -2531,29 +2646,32 @@ class LL_mailer
             </td>
             <td>
 <?php
+              $date = null;
+              $status = array();
               if (!empty($subscriber['subscribed_at'])) {
-                echo $subscriber['subscribed_at'];
+                $date = $subscriber['subscribed_at'];
               }
               else {
                 if (isset($meta[self::meta_submitted_at])) {
-                  echo date('Y-m-d H:i:s', $meta[self::meta_submitted_at]) . ' (' . __('unbestätigt', 'LL_mailer') . ')';
+                  $date = date('Y-m-d H:i:s', $meta[self::meta_submitted_at]);
                 }
-                else {
-                  echo __('unbestätigt', 'LL_mailer');
-                }
+                $status[] = __('Unbestätigt', 'LL_mailer');
               }
-?>
-            </td>
-            <td>
-<?php
-              $status = array();
               if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
-                $status[] = __('deaktiviert', 'LL_mailer');
+                $status[] = __('Deaktiviert', 'LL_mailer');
               }
               if (isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) {
                 $status[] = __('Testempfänger', 'LL_mailer');
               }
-              echo implode(', ', $status);
+
+              $status_output = [];
+              if (!is_null($date)) {
+                $status_output[] = $date;
+              }
+              if (!empty($status)) {
+                $status_output[] = implode(', ', $status);
+              }
+              echo implode(' / ', $status_output);
 ?>
             </td>
           </tr>
@@ -2840,6 +2958,14 @@ class LL_mailer
     return '';
   }
 
+  static function post_row_actions($actions, $post)
+  {
+    if ($post->post_status === 'publish') {
+      $actions[self::_ . '_send_abo_mail'] = '<a href="' . self::generate_new_post_abo_mail($post->ID) . '">Abo E-Mails senden</a>';
+    }
+    return $actions;
+  }
+
 
 
 
@@ -2854,6 +2980,8 @@ class LL_mailer
     add_action('admin_post_' . self::_ . '_template_action', self::_('admin_page_template_action'));
     add_action('admin_post_' . self::_ . '_message_action', self::_('admin_page_message_action'));
     add_action('admin_post_' . self::_ . '_subscriber_action', self::_('admin_page_subscriber_action'));
+
+    add_filter('post_row_actions', self::_('post_row_actions'), 10, 2);
 
 
     add_shortcode(self::shortcode_SUBSCRIPTION_FORM['code'], self::_('shortcode_SUBSCRIPTION_FORM'));
