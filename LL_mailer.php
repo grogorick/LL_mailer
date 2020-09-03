@@ -372,7 +372,7 @@ class LL_mailer
 
   static function db_find_post($slug) {
     global $wpdb;
-    return (int) $wpdb->get_var('SELECT ID FROM ' . $wpdb->posts . self::build_where(array('post_name' => $slug)) . ';');
+    return (int) $wpdb->get_var('SELECT ' . 'ID' . ' FROM ' . $wpdb->posts . self::build_where(array('post_name' => $slug)) . ';');
   }
 
   // templates
@@ -1422,11 +1422,23 @@ class LL_mailer
   static function admin_menu()
   {
     $required_capability = 'administrator';
-    add_menu_page(self::_,                      self::_,                  $required_capability, self::admin_page_settings,    self::_('admin_page_settings'), plugins_url('/icon.png', __FILE__));
-    add_submenu_page(self::admin_page_settings, self::_, 'Einstellungen', $required_capability, self::admin_page_settings,    self::_('admin_page_settings'));
-    add_submenu_page(self::admin_page_settings, self::_, 'Vorlagen',      $required_capability, self::admin_page_templates,   self::_('admin_page_templates'));
-    add_submenu_page(self::admin_page_settings, self::_, 'Nachrichten',   $required_capability, self::admin_page_messages,    self::_('admin_page_messages'));
-    add_submenu_page(self::admin_page_settings, self::_, 'Abonnenten',    $required_capability, self::admin_page_subscribers, self::_('admin_page_subscribers'));
+    add_menu_page(self::_, self::_, $required_capability,
+                  self::admin_page_settings, self::_('admin_page_settings'), plugins_url('/icon.png', __FILE__));
+
+    add_submenu_page(self::admin_page_settings, self::_, __('Einstellungen', 'LL_mailer'), $required_capability,
+                     self::admin_page_settings, self::_('admin_page_settings'));
+
+    add_submenu_page(self::admin_page_settings, self::_, __('Vorlagen', 'LL_mailer'), $required_capability,
+                     self::admin_page_templates, self::_('admin_page_templates'));
+
+    add_submenu_page(self::admin_page_settings, self::_, __('Nachrichten', 'LL_mailer'), $required_capability,
+                     self::admin_page_messages, self::_('admin_page_messages'));
+
+    add_submenu_page(self::admin_page_settings, self::_, __('Abos', 'LL_mailer'), $required_capability,
+                     self::admin_page_abos, self::_('admin_page_abos'));
+
+    add_submenu_page(self::admin_page_settings, self::_, __('Abonnenten', 'LL_mailer'), $required_capability,
+                     self::admin_page_subscribers, self::_('admin_page_subscribers'));
 
     add_action('admin_init', self::_('admin_page_settings_general_action'));
   }
@@ -2446,7 +2458,7 @@ class LL_mailer
 
       case 'abo_mail_preview':
       {
-        $errors = [];
+        $errors = array();
         if (!isset($_GET['abo_mail_preview'])) {
           $errors[] = __('Keine Nachricht angegeben', 'LL_mailer');
         }
@@ -2674,7 +2686,7 @@ class LL_mailer
                 $status[] = __('Testempfänger', 'LL_mailer');
               }
 
-              $status_output = [];
+              $status_output = array();
               if (!is_null($date)) {
                 $status_output[] = $date;
               }
