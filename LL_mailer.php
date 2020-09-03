@@ -22,6 +22,7 @@ class LL_mailer
 {
   const _ = 'LL_mailer';
 
+  const option_version                      = self::_ . '_version';
   const option_msg                          = self::_ . '_msg';
   const option_sender_name                  = self::_ . '_sender_name';
   const option_sender_mail                  = self::_ . '_sender_mail';
@@ -503,6 +504,20 @@ class LL_mailer
     register_uninstall_hook(__FILE__, self::_('uninstall'));
   }
 
+  static function check_for_db_updates()
+  {
+    if (is_admin()) {
+      $db_version = intval(get_option(self::option_version, 0));
+      while (method_exists(self::_, 'update_' . ++$db_version)) {
+        $r = self::{ 'update_' . $db_version }();
+        self::message(__(
+          'Die ' . self::_ . ' Datenbank wurde auf Version ' . $db_version . ' aktualisiert.', 'LL_mailer') .
+          '<br /><p>- ' . implode('</p><p>- ', $r) . '</p>');
+        update_option(self::option_version, $db_version);
+      }
+    }
+  }
+
   static function uninstall()
   {
     global $wpdb;
@@ -510,6 +525,7 @@ class LL_mailer
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_messages) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_templates) . ';');
 
+    delete_option(self::option_version);
     delete_option(self::option_msg);
     delete_option(self::option_sender_name);
     delete_option(self::option_sender_mail);
@@ -1443,6 +1459,15 @@ class LL_mailer
     add_action('admin_init', self::_('admin_page_settings_general_action'));
   }
 
+  static function admin_page_footer()
+  {
+    ?>
+    <div id="wpfooter" style="text-align: right; position: unset;">
+      Pluginversion <?=get_option(self::option_version)?>
+    </div>
+    <?php
+  }
+
 
 
   static function admin_page_settings()
@@ -1827,6 +1852,7 @@ class LL_mailer
       </table>
     </div>
 <?php
+    self::admin_page_footer();
   }
 
   static function admin_page_settings_general_action()
@@ -2050,6 +2076,7 @@ class LL_mailer
 ?>
     </div>
 <?php
+    self::admin_page_footer();
   }
 
   static function admin_page_template_action()
@@ -2561,6 +2588,7 @@ class LL_mailer
 ?>
     </div>
 <?php
+    self::admin_page_footer();
   }
 
   static function admin_page_message_action()
@@ -2824,6 +2852,7 @@ class LL_mailer
 ?>
     </div>
 <?php
+    self::admin_page_footer();
   }
 
   static function admin_page_subscriber_action()
@@ -3032,6 +3061,8 @@ class LL_mailer
     add_action('admin_notices', self::_('admin_notices'));
 
     register_activation_hook(__FILE__, self::_('activate'));
+
+    self::check_for_db_updates();
 
     add_action('transition_post_status', self::_('post_status_transition'), 10, 3);
 
