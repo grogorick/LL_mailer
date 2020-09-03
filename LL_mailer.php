@@ -62,7 +62,11 @@ class LL_mailer
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
-  const attr_fmt_alt_html                   = ' "<i>Attribut-Slug</i>" {fmt="&percnt;s"} {alt=""} {escape-html} {nl2br}';
+  const attr_fmt_alt_html                   = array('fmt' => '{fmt="&percnt;s"}',
+                                                    'alt' => '{alt=""}',
+                                                    'escape' => '{escape-html}',
+                                                    'br' => '{nl2br}');
+  const attr_options_html                   = ' "<i>Attribut-Slug</i>" {...}';
 
   const pattern_any_token                   = '/\[[^\]]*\]/';
 
@@ -82,19 +86,19 @@ class LL_mailer
                                                     'html'    => '[ESCAPE_HTML]...[/ESCAPE_HTML]'
                                                     );
   const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER' . self::attr_fmt_alt . '\]/',
-                                                    'html'    => '[SUBSCRIBER' . self::attr_fmt_alt_html . ']',
+                                                    'html'    => '[SUBSCRIBER' . self::attr_options_html . ']',
                                                     'filter'  => self::_ . '_SUBSCRIBER_attribute',
                                                     'example' => array('[SUBSCRIBER "mail"]',
                                                                        '[SUBSCRIBER "name" fmt="Hallo %s, willkommen" alt="Willkommen"]')
                                                     );
   const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST' . self::attr_fmt_alt . '\]/',
-                                                    'html'    => '[POST' . self::attr_fmt_alt_html . ']',
+                                                    'html'    => '[POST' . self::attr_options_html . ']',
                                                     'filter'  => self::_ . '_POST_attribute',
                                                     'example' => array('[POST "post_title"]',
                                                                        '[POST "post_excerpt" alt="" escape-html nl2br]')
                                                     );
   const token_POST_META                     = array('pattern' => '/\[POST_META' . self::attr_fmt_alt . '\]/',
-                                                    'html'    => '[POST_META' . self::attr_fmt_alt_html . ']',
+                                                    'html'    => '[POST_META' . self::attr_options_html . ']',
                                                     'filter'  => self::_ . '_POST_META_attribute',
                                                     'example' => array('[POST_META "plugin-post-meta-key"]',
                                                                        '[POST_META "genre" fmt="Genre: %s&lt;br /&gt;" alt=""]')
@@ -1379,31 +1383,31 @@ class LL_mailer
         </td>
       </tr>
 
-      <tr><td colspan=2><?=__('Optionale Attribute in Platzhaltern:', 'LL_mailer')?></td></tr>
+      <tr><td colspan=2><?=sprintf(__('Optionale Attribute in Platzhaltern %s:', 'LL_mailer'), '<code>{...}</code>')?></td></tr>
       <tr>
         <td><?=self::list_item?></td>
-        <td><code>{fmt="%s"}</code></td>
+        <td><code><?=self::attr_fmt_alt_html['fmt']?></code></td>
         <td>
           <?=sprintf(__('Formatierung (%s) von eingesetzten Attributen.', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.sprintf.php" target="_blank">?</a>')?>
         </td>
       </tr>
       <tr>
         <td><?=self::list_item?></td>
-        <td><code>{alt=""}</code></td>
+        <td><code><?=self::attr_fmt_alt_html['alt']?></code></td>
         <td>
           <?=__('Alternativtext, falls angeforderte Attribute (für den Nutzer/Post) nicht vorhanden sind.', 'LL_mailer')?>
         </td>
       </tr>
       <tr>
         <td><?=self::list_item?></td>
-        <td><code>{escape-html}</code></td>
+        <td><code><?=self::attr_fmt_alt_html['escape']?></code></td>
         <td>
           <?=sprintf(__('HTML-spezifische Sonderzeichen (z.B. <code>&lt;</code> oder <code>&gt;</code>) in anzeigbaren Text umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.htmlspecialchars.php" target="_blank">?</a>')?>
         </td>
       </tr>
       <tr>
         <td><?=self::list_item?></td>
-        <td><code>{nl2br}</code></td>
+        <td><code><?=self::attr_fmt_alt_html['br']?></code></td>
         <td>
           <?=sprintf(__('Zeilenumbrüche in HTML-Zeilenumbrüche umwandeln (%s).', 'LL_mailer'), '<a href="https://www.php.net/manual/de/function.nl2br.php" target="_blank">?</a>')?>
         </td>
