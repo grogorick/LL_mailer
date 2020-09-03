@@ -1629,23 +1629,42 @@ class LL_mailer
           <tr><td colspan="2"><hr /></td></tr>
 
           <tr>
-            <th scope="row" colspan="2"><?=__('Spam-Erkennung für die Anmeldung (Variante 1)', 'LL_mailer')?></th>
+            <th scope="row" colspan="2">
+              <?=__('Spam-Erkennung für die Anmeldung / Variante 1: Zufällige Frage', 'LL_mailer')?>
+            </th>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?>>
-              <label for="<?=self::option_use_robot_check?>"><?=__('Frage anzeigen', 'LL_mailer')?></label>
+            <td colspan="2" style="padding-top: 0">
+              <p class="description"><?=__('Eine der folgenden Fragen wird zufällig ausgewählt und muss richtig beantwortet werden.', 'LL_mailer')?></p>
             </td>
+          </tr>
+          <tr>
+            <td></td>
             <td>
-              <input type="checkbox" id="<?=self::option_use_robot_check?>" name="<?=self::option_use_robot_check?>" <?=get_option(self::option_use_robot_check) ? 'checked' : ''?> />
+              <p class="description">
+                <?=implode('<br />', array_map(function($item) { return $item[0] . ' (' . $item[1] . ')'; }, self::robot_questions))?>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>
+              <label>
+                <input type="checkbox" id="<?=self::option_use_robot_check?>" name="<?=self::option_use_robot_check?>" <?=get_option(self::option_use_robot_check) ? 'checked' : ''?> />
+                <?=__('Aktivieren', 'LL_mailer')?>
+              </label>
             </td>
           </tr>
 
           <tr>
-            <th scope="row" colspan="2"><?=__('Spam-Erkennung für die Anmeldung (Variante 2)', 'LL_mailer')?></th>
+            <th scope="row" colspan="2">
+              <?=__('Spam-Erkennung für die Anmeldung / Variante 2: reCAPTCHA v2 (Google)', 'LL_mailer')?>
+            </th>
           </tr>
           <tr>
-            <td>reCAPTCHA v2 (Google)</td>
-            <td <?=self::secondary_settings_label?>><?=__('Wird aktiviert, sobald beide Schlüssel eingetragen sind', 'LL_mailer')?></td>
+            <td colspan="2" style="padding-top: 0">
+              <p class="description"><?=preg_replace('/%(.+)%/', '<a href="https://www.google.com/recaptcha/admin/" target="_blank">$1</a>', __('Wird aktiviert, sobald beide %Schlüssel% eingetragen sind.', 'LL_mailer'))?></p>
+            </td>
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>>
