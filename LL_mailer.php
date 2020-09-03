@@ -118,7 +118,7 @@ class LL_mailer
   const robot_questions = array(array('Welche Farbe haben Bananen?', 'gelb'),
                                 array('Auf welchem Planeten leben wir?', 'Erde'),
                                 array('Ist es tags hell oder dunkel?', 'hell'),
-                                array('Schwimmt man in Sand oder Wasser?', 'Wasser'));
+                                array('Schwimmen Fische in Sand oder Wasser?', 'Wasser'));
 
   const user_msg = self::_ . '_usermsg';
   const retry = self::_ . '_retry';
@@ -1475,7 +1475,7 @@ class LL_mailer
           <tr>
             <td <?=self::secondary_settings_label?>>
               <label for="<?=self::option_subscribe_page?>" title="<?=__('Die Blogseite, auf der Besucher sich einschreiben können', 'LL_mailer')?>">
-                <?=__('Den Blog abonnieren', 'LL_mailer')?></label>
+                <?=__('E-Mails abonnieren', 'LL_mailer')?></label>
             </td>
             <td>
               <input type="text" id="<?=self::option_subscribe_page?>" name="<?=self::option_subscribe_page?>" value="<?=esc_attr(get_option(self::option_subscribe_page))?>" placeholder="Seite" class="regular-text" />
@@ -1495,7 +1495,7 @@ class LL_mailer
             </td>
           </tr>
           <tr>
-            <td <?=self::secondary_settings_label?> title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie ihr E-Mail Adresse bestätigt haben', 'LL_mailer')?>">
+            <td <?=self::secondary_settings_label?> title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie ihre E-Mail Adresse bestätigt haben', 'LL_mailer')?>">
               <label for="<?=self::option_confirmed_page?>">
                 <?=__('E-Mail bestätigt', 'LL_mailer')?></label>
             </td>
@@ -1541,7 +1541,7 @@ class LL_mailer
               &nbsp;
               <a id="<?=self::option_confirmation_msg?>_link" href="<?=self::admin_url() . self::admin_page_message_edit . urlencode($selected_msg)?>">(<?=__('Zur Nachricht', 'LL_mailer')?>)</a>
               <p class="description">
-                <?=__('Wird aktiviert, sobald eine Nachricht ausgewählt ist', 'LL_mailer')?><br />
+                <?=__('Wird aktiviert, sobald eine Nachricht ausgewählt ist.', 'LL_mailer')?><br />
                 <?=sprintf(__('Nutze <code>%s</code> um den Bestätigungs-Link im Text einzufügen.', 'LL_mailer'), self::token_CONFIRMATION_URL['html'])?>
               </p>
             </td>
