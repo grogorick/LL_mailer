@@ -39,10 +39,16 @@ class LL_mailer
   const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
   const option_use_robot_check              = self::_ . '_use_robot_check';
 
+  const subscriber_attribute_id             = 'id';
   const subscriber_attribute_mail           = 'mail';
   const subscriber_attribute_name           = 'name';
   const subscriber_attribute_subscribed_at  = 'subscribed_at';
   const subscriber_attribute_meta           = 'meta';
+  const subscriber_attributes_default       = array(self::subscriber_attribute_id,
+                                                    self::subscriber_attribute_mail,
+                                                    self::subscriber_attribute_name,
+                                                    self::subscriber_attribute_subscribed_at,
+                                                    self::subscriber_attribute_meta);
 
   const meta_ip                             = 'ip';
   const meta_submitted_at                   = 'submitted_at';
@@ -61,6 +67,7 @@ class LL_mailer
   const admin_page_message_abo_mail_preview = self::_ . '_messages&abo_mail_preview=';
   const admin_page_subscribers              = self::_ . '_subscribers';
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
+  const admin_page_subscriber_attributes    = self::_ . '_subscriber_attributes';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
   const attr_fmt_alt_html                   = array('fmt' => '{fmt="&percnt;s"}',
@@ -148,7 +155,17 @@ class LL_mailer
     return $val;
   }
 
-  static function is_predefined_subscriber_attribute($attr) { return in_array($attr, array(self::subscriber_attribute_mail, self::subscriber_attribute_name)); }
+  static function in_array($haystack, $compare_callback)
+  {
+    foreach ($haystack as $key => &$item) {
+      if ($compare_callback($item, $key)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static function is_predefined_subscriber_attribute($attr) { return in_array($attr, self::subscriber_attributes_default); }
 
   static function make_cid($i) { return 'attachment.' . $i . '@' . $_SERVER['SERVER_NAME']; }
 
@@ -498,8 +515,7 @@ class LL_mailer
       self::subscriber_attribute_mail => 'Deine E-Mail Adresse',
       self::subscriber_attribute_name => 'Dein Name'));
 
-    self::message('Optionen initialisiert.');
-
+    self::message(__('Datenbank eingerichtet und Optionen initialisiert.', 'LL_mailer') . '<br /><p>- ' . implode('</p><p>- ', $r) . '</p>');
 
     register_uninstall_hook(__FILE__, self::_('uninstall'));
   }
@@ -1456,6 +1472,9 @@ class LL_mailer
     add_submenu_page(self::admin_page_settings, self::_, __('Abonnenten', 'LL_mailer'), $required_capability,
                      self::admin_page_subscribers, self::_('admin_page_subscribers'));
 
+    add_submenu_page(self::admin_page_settings, self::_, __('Abonnenten-Attribute', 'LL_mailer'), $required_capability,
+                     self::admin_page_subscriber_attributes, self::_('admin_page_subscriber_attributes'));
+
     add_action('admin_init', self::_('admin_page_settings_general_action'));
   }
 
@@ -1785,71 +1804,6 @@ class LL_mailer
           link_message('<?=self::option_unsubscribed_admin_msg?>');
         };
       </script>
-      <hr />
-      <table class="form-table">
-        <tr>
-          <th scope="row" id="subscriber-attributes"><?=__('Abonnenten-Attribute', 'LL_mailer')?></th>
-          <td>
-<?php
-            $attributes = self::get_option_array(self::option_subscriber_attributes);
-            $attribute_groups = array(
-              'predefined' => array(
-                self::subscriber_attribute_mail => $attributes[self::subscriber_attribute_mail],
-                self::subscriber_attribute_name => $attributes[self::subscriber_attribute_name]),
-              'dynamic' => array_filter($attributes, function($key) { return !self::is_predefined_subscriber_attribute($key); }, ARRAY_FILTER_USE_KEY));
-?>
-            <style>
-              .LL_mailer_attributes_table td {
-                padding-top: 5px;
-                padding-bottom: 0px;
-              }
-            </style>
-            <table class="<?=self::_?>_attributes_table">
-            <tr><td><?=__('Attribut-Label', 'LL_mailer')?></td><td><?=__('Attribut-Slug', 'LL_mailer')?></td></tr>
-<?php
-            foreach ($attribute_groups as $group => &$attrs) {
-              foreach ($attrs as $attr => $attr_label) {
-?>
-              <tr><td>
-                <form method="post" action="admin-post.php" style="display: inline;">
-                  <input type="hidden" name="action" value="<?=self::_?>_settings_action" />
-                  <?php wp_nonce_field(self::_ . '_subscriber_attribute_edit'); ?>
-                  <input type="hidden" name="attribute" value="<?=$attr?>" />
-                  <input type="text" name="new_attribute_label" value="<?=$attr_label?>" class="regular-text" />
-                  <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
-                </form>
-              </td><td><code>"<?=$attr?>"</code></td>
-              <td>
-<?php
-                if ($group == 'dynamic') {
-?>
-                  &nbsp;
-                  <form method="post" action="admin-post.php" style="display: inline;">
-                    <input type="hidden" name="action" value="<?=self::_?>_settings_action" />
-                    <?php wp_nonce_field(self::_ . '_subscriber_attribute_delete'); ?>
-                    <input type="hidden" name="attribute" value="<?=$attr?>" />
-                    <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\nDie entsprechenden Daten der Abonnenten gehen dabei verloren.\')')); ?>
-                  </form>
-<?php
-                }
-?>
-              </td></tr>
-<?php
-              }
-            }
-?>
-              <tr><td colspan="3">
-                <form method="post" action="admin-post.php" style="display: inline;">
-                  <input type="hidden" name="action" value="<?=self::_?>_settings_action" />
-                  <?php wp_nonce_field(self::_ . '_subscriber_attribute_add'); ?>
-                  <input type="text" name="attribute" placeholder="<?=__('Neues Attribut', 'LL_mailer')?>" class="regular-text" />
-                  <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?>
-                </form>
-              </td></tr>
-            </table>
-          </td>
-        </tr>
-      </table>
     </div>
 <?php
     self::admin_page_footer();
@@ -1871,69 +1825,6 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_recaptcha_website_key);
     register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
     register_setting(self::_ . '_general', self::option_use_robot_check);
-  }
-
-  static function admin_page_settings_action()
-  {
-    if (!empty($_POST) && isset($_POST['_wpnonce'])) {
-      $attribute = trim($_POST['attribute']);
-      if (!empty($attribute)) {
-        if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_add')) {
-          $attribute_label = $attribute;
-          $attribute = sanitize_title($attribute);
-          if (!empty($attribute)) {
-            $attributes = self::get_option_array(self::option_subscriber_attributes);
-            if (in_array($attribute, array_keys($attributes))) {
-              self::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $attribute_label));
-              wp_redirect(self::admin_url() . self::admin_page_settings);
-              exit;
-            }
-
-            $attributes[$attribute] = $attribute_label;
-            update_option(self::option_subscriber_attributes, $attributes);
-            $r = self::db_subscribers_add_attribute($attribute);
-
-            self::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.', 'LL_mailer'), $attribute_label));
-          }
-        }
-        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_edit')) {
-          $new_attribute_label = trim($_POST['new_attribute_label']);
-          $new_attribute = sanitize_title($new_attribute_label);
-          if (!empty($new_attribute_label) && !empty($new_attribute)) {
-            $attributes = self::get_option_array(self::option_subscriber_attributes);
-            if ($new_attribute != $attribute && in_array($new_attribute, array_keys($attributes))) {
-              self::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $new_attribute_label));
-              wp_redirect(self::admin_url() . self::admin_page_settings);
-              exit;
-            }
-
-            $attribute_label = $attributes[$attribute];
-            if (self::is_predefined_subscriber_attribute($attribute)) {
-              $attributes[$attribute] = $new_attribute_label;
-            } else {
-              unset($attributes[$attribute]);
-              $attributes[$new_attribute] = $new_attribute_label;
-              self::db_subscribers_rename_attribute($attribute, $new_attribute);
-            }
-            update_option(self::option_subscriber_attributes, $attributes);
-
-            self::message(sprintf(__('Abonnenten-Attribut <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $attribute_label, $new_attribute_label));
-          }
-        }
-        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_delete')) {
-          $attributes = self::get_option_array(self::option_subscriber_attributes);
-
-          $attribute_label = $attributes[$attribute];
-          unset($attributes[$attribute]);
-          update_option(self::option_subscriber_attributes, $attributes);
-          self::db_subscribers_delete_attribute($attribute);
-
-          self::message(sprintf(__('Abonnenten-Attribut <b>%s</b> gelöscht.', 'LL_mailer'), $attribute_label));
-        }
-      }
-    }
-    wp_redirect(self::admin_url() . self::admin_page_settings);
-    exit;
   }
 
 
@@ -2942,6 +2833,155 @@ class LL_mailer
 
 
 
+  static function admin_page_subscriber_attributes()
+  {
+    $attributes = self::get_option_array(self::option_subscriber_attributes);
+    $attribute_groups = array(
+      'predefined' => array(
+        self::subscriber_attribute_mail => $attributes[self::subscriber_attribute_mail],
+        self::subscriber_attribute_name => $attributes[self::subscriber_attribute_name]),
+      'dynamic' => array_filter($attributes, function($key) { return !self::is_predefined_subscriber_attribute($key); }, ARRAY_FILTER_USE_KEY));
+?>
+    <div class="wrap">
+      <h1><?=__('Abonnenten-Attibute', 'LL_mailer')?></h1>
+      <p></p>
+      <table class="widefat fixed striped">
+        <tr>
+          <td><?=__('Attribut', 'LL_mailer')?></td>
+          <td colspan="2"><?=__('Attribut-Slug', 'LL_mailer')?></td>
+        </tr>
+<?php
+        foreach ($attribute_groups as $group => &$attrs) {
+          foreach ($attrs as $attr => $attr_label) {
+            $form_id = self::_ . '_form_subscriber_attribute_' . $attr;
+?>
+        <tr>
+          <td>
+            <form method="post" action="admin-post.php" style="display: inline;" id="<?=$form_id?>">
+              <input type="hidden" name="action" value="<?=self::_?>_subscriber_attributes_action" />
+              <?php wp_nonce_field(self::_ . '_subscriber_attribute_edit'); ?>
+              <input type="hidden" name="attribute" value="<?=$attr?>" />
+              <input type="text" name="new_attribute_label" value="<?=$attr_label?>" class="regular-text" />
+            </form>
+          </td>
+          <td>
+            <code>"<?=$attr?>"</code>
+          </td>
+          <td>
+            <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $form_id)); ?>
+<?php
+            if ($group == 'dynamic') {
+?>
+            <form method="post" action="admin-post.php" style="display: inline;">
+              <input type="hidden" name="action" value="<?=self::_?>_subscriber_attributes_action" />
+              <?php wp_nonce_field(self::_ . '_subscriber_attribute_delete'); ?>
+              <input type="hidden" name="attribute" value="<?=$attr?>" />
+              <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\nDie entsprechenden Daten der Abonnenten gehen dabei verloren.\')')); ?>
+            </form>
+<?php
+            }
+?>
+          </td>
+        </tr>
+<?php
+          }
+        }
+        $new_form_id = self::_ . '_form_new_subscriber_attribute';
+?>
+          <tr>
+            <td colspan="2">
+              <form method="post" action="admin-post.php" style="display: inline;" id="<?=$new_form_id?>">
+                <input type="hidden" name="action" value="<?=self::_?>_subscriber_attributes_action" />
+                <?php wp_nonce_field(self::_ . '_subscriber_attribute_add'); ?>
+                <input type="text" name="attribute" placeholder="<?=__('Neues Attribut', 'LL_mailer')?>" class="regular-text" />
+              </td>
+              <td>
+                <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $new_form_id)); ?>
+              </td>
+            </form>
+          </tr>
+        </table>
+    </div>
+<?php
+    self::admin_page_footer();
+  }
+
+  static function admin_page_subscriber_attributes_action()
+  {
+    if (!empty($_POST) && isset($_POST['_wpnonce'])) {
+      $attribute = trim($_POST['attribute']);
+      if (!empty($attribute)) {
+        if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_add')) {
+          $attribute_label = $attribute;
+          $attribute = sanitize_title($attribute);
+          if (!empty($attribute)) {
+            if (self::is_predefined_subscriber_attribute($attribute)) {
+              self::message(sprintf(__('Es existiet bereits ein Standard-Abonnenten-Attribut <b>%s</b>.', 'LL_mailer'), $attribute));
+              wp_redirect(self::admin_url() . self::admin_page_subscriber_attributes);
+              exit;
+            }
+            $attributes = self::get_option_array(self::option_subscriber_attributes);
+            if (in_array($attribute, array_keys($attributes))) {
+              self::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $attribute_label));
+              wp_redirect(self::admin_url() . self::admin_page_subscriber_attributes);
+              exit;
+            }
+
+            $attributes[$attribute] = $attribute_label;
+            update_option(self::option_subscriber_attributes, $attributes);
+            self::db_subscribers_add_attribute($attribute);
+
+            self::message(sprintf(__('Neues Abonnenten-Attribut <b>%s</b> hinzugefügt.', 'LL_mailer'), $attribute_label));
+          }
+        }
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_edit')) {
+          $new_attribute_label = trim($_POST['new_attribute_label']);
+          $new_attribute = sanitize_title($new_attribute_label);
+          if (!empty($new_attribute_label) && !empty($new_attribute)) {
+            $attributes = self::get_option_array(self::option_subscriber_attributes);
+            if ($new_attribute != $attribute && in_array($new_attribute, array_keys($attributes))) {
+              self::message(sprintf(__('Ein Abonnenten-Attribut <b>%s</b> existiert bereits.', 'LL_mailer'), $new_attribute_label));
+              wp_redirect(self::admin_url() . self::admin_page_subscriber_attributes);
+              exit;
+            }
+
+            $attribute_label = $attributes[$attribute];
+            if (self::is_predefined_subscriber_attribute($attribute)) {
+              $attributes[$attribute] = $new_attribute_label;
+            } else {
+              unset($attributes[$attribute]);
+              $attributes[$new_attribute] = $new_attribute_label;
+              self::db_subscribers_rename_attribute($attribute, $new_attribute);
+            }
+            update_option(self::option_subscriber_attributes, $attributes);
+
+            self::message(sprintf(__('Abonnenten-Attribut <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $attribute_label, $new_attribute_label));
+          }
+        }
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_attribute_delete')) {
+          if (self::is_predefined_subscriber_attribute($attribute)) {
+            self::message(sprintf(__('Das Standard-Abonnenten-Attribut <b>%s</b> kann nicht gelöscht werden.', 'LL_mailer'), $attribute));
+            wp_redirect(self::admin_url() . self::admin_page_subscriber_attributes);
+            exit;
+          }
+
+          $attributes = self::get_option_array(self::option_subscriber_attributes);
+
+          $attribute_label = $attributes[$attribute];
+          unset($attributes[$attribute]);
+          update_option(self::option_subscriber_attributes, $attributes);
+          self::db_subscribers_delete_attribute($attribute);
+
+          self::message(sprintf(__('Abonnenten-Attribut <b>%s</b> gelöscht.', 'LL_mailer'), $attribute_label));
+        }
+      }
+    }
+    wp_redirect(self::admin_url() . self::admin_page_subscriber_attributes);
+    exit;
+  }
+
+
+
   static function shortcode_SUBSCRIPTION_FORM($atts)
   {
     if (isset($_GET[self::user_msg])) {
@@ -3046,10 +3086,10 @@ class LL_mailer
   static function init_hooks_and_filters()
   {
     add_action('admin_menu', self::_('admin_menu'));
-    add_action('admin_post_' . self::_ . '_settings_action', self::_('admin_page_settings_action'));
     add_action('admin_post_' . self::_ . '_template_action', self::_('admin_page_template_action'));
     add_action('admin_post_' . self::_ . '_message_action', self::_('admin_page_message_action'));
     add_action('admin_post_' . self::_ . '_subscriber_action', self::_('admin_page_subscriber_action'));
+    add_action('admin_post_' . self::_ . '_subscriber_attributes_action', self::_('admin_page_subscriber_attributes_action'));
 
     add_filter('post_row_actions', self::_('post_row_actions'), 10, 2);
 
