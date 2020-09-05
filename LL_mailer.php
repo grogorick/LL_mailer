@@ -272,6 +272,10 @@ class LL_mailer
 
   static function escape_key($key)
   {
+    if ($key === '*')
+      return $key;
+    if ($key[0] === '#')
+      return substr($key, 1);
     return '`' . $key . '`';
   }
 
@@ -282,15 +286,13 @@ class LL_mailer
         return self::escape_key($key);
       }, $keys);
     }
-    if ($keys === '*')
-      return $keys;
-    if ($keys[0] === '#')
-      return substr($keys, 1);
     return self::escape_key($keys);
   }
 
   static function escape_value($value)
   {
+    if ($value[0] === '#')
+      return substr($value, 1);
     return '"' . $value . '"';
   }
 
@@ -308,7 +310,7 @@ class LL_mailer
   {
     $ret = array();
     foreach ($assoc_array as $key => $val) {
-      $ret[self::escape_key($key)] = (!is_null($val)) ? self::escape_value($val) : 'NULL';
+      $ret[self::escape_key($key)] = is_null($val) ? 'NULL' : (is_array($val) ? self::escape_values($val) : self::escape_value($val));
     }
     return $ret;
   }
@@ -348,22 +350,18 @@ class LL_mailer
     return $sql;
   }
 
-  static function _db_insert($table, $data, $timestamp_key = null)
+  static function _db_insert($table, $data)
   {
     $data = self::escape($data);
-    if (!is_null($timestamp_key))
-      $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
     $sql = 'INSERT INTO ' . self::escape_key($wpdb->prefix . $table) . ' ( ' . implode(', ', array_keys($data)) . ' ) VALUES ( ' . implode(', ', array_values($data)) . ' );';
     // self::message(htmlspecialchars($sql));
     return $wpdb->query($sql);
   }
 
-  static function _db_update($table, $data, $where, $timestamp_key = null)
+  static function _db_update($table, $data, $where)
   {
     $data = self::escape($data);
-    if (!is_null($timestamp_key))
-      $data[self::escape_key($timestamp_key)] = 'NOW()';
     global $wpdb;
     $sql = 'UPDATE ' . self::escape_key($wpdb->prefix . $table) . ' SET ' . self::array_zip(' = ', $data, ', ') . self::build_where($where) . ';';
     // self::message(htmlspecialchars($sql));
@@ -408,7 +406,7 @@ class LL_mailer
   // - body_text
   // - last_modified
   static function db_add_template($template) { return self::_db_insert(self::table_templates, $template); }
-  static function db_update_template($template, $slug) { return self::_db_update(self::table_templates, $template, array('slug' => $slug), 'last_modified'); }
+  static function db_update_template($template, $slug) { $template['last_modified'] = '#NOW()'; return self::_db_update(self::table_templates, $template, array('slug' => $slug)); }
   static function db_delete_template($slug) { return self::_db_delete(self::table_templates, array('slug' => $slug)); }
   static function db_get_template_by_slug($slug) { return self::_db_select_row(self::table_templates, '*', array('slug' => $slug)); }
   static function db_get_templates($what) { return self::_db_select(self::table_templates, $what); }
@@ -421,7 +419,7 @@ class LL_mailer
   // - body_text
   // - last_modified
   static function db_add_message($message) { return self::_db_insert(self::table_messages, $message); }
-  static function db_update_message($message, $slug) { return self::_db_update(self::table_messages, $message, array('slug' => $slug), 'last_modified'); }
+  static function db_update_message($message, $slug) { $message['last_modified'] = '#NOW()'; return self::_db_update(self::table_messages, $message, array('slug' => $slug)); }
   static function db_delete_message($slug) { return self::_db_delete(self::table_messages, array('slug' => $slug)); }
   static function db_get_message_by_slug($slug) { return self::_db_select_row(self::table_messages, '*', array('slug' => $slug)); }
   static function db_get_messages($what) { return self::_db_select(self::table_messages, $what); }
@@ -451,7 +449,7 @@ class LL_mailer
 	  return self::_db_insert(self::table_subscribers, $subscriber);
 	}
   static function db_update_subscriber($subscriber, $old_mail) { return self::_db_update(self::table_subscribers, $subscriber, array(self::subscriber_attribute_mail => $old_mail)); }
-  static function db_confirm_subscriber($mail) { return self::_db_update(self::table_subscribers, array(), array(self::subscriber_attribute_mail => $mail), self::subscriber_attribute_subscribed_at); }
+  static function db_confirm_subscriber($mail) { return self::_db_update(self::table_subscribers, array(self::subscriber_attribute_subscribed_at => '#NOW()'), array(self::subscriber_attribute_mail => $mail)); }
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
 
@@ -516,7 +514,8 @@ class LL_mailer
           `body_text` TEXT,
           `last_modified` DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
           PRIMARY KEY (`slug`)
-        ) ' . $wpdb->get_charset_collate() . ';'
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_messages . ' : ' .
@@ -530,7 +529,8 @@ class LL_mailer
           `last_modified` DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
           PRIMARY KEY (`slug`),
           FOREIGN KEY (`template_slug`) REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_templates) . ' (`slug`) ON DELETE RESTRICT ON UPDATE CASCADE
-        ) ' . $wpdb->get_charset_collate() . ';'
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_abos . ' : ' .
@@ -540,7 +540,8 @@ class LL_mailer
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
           PRIMARY KEY (`id`)
-        ) ' . $wpdb->get_charset_collate() . ';'
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_subscribers . ' : ' .
@@ -553,7 +554,8 @@ class LL_mailer
           `' . self::subscriber_attribute_meta . '` TEXT NULL DEFAULT NULL,
           PRIMARY KEY (`' . self::subscriber_attribute_id . '`),
           UNIQUE (`' . self::subscriber_attribute_mail . '`)
-        ) ' . $wpdb->get_charset_collate() . ';'
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_abos . ' : ' .
@@ -593,7 +595,8 @@ class LL_mailer
     $r = array();
     $labels = self::get_db_labels();
 
-    $r[] = self::table_subscribers . ' : ' . ($wpdb->query('
+    $r[] = self::table_subscribers . ' : ' .
+      ($wpdb->query('
         ALTER TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '
           DROP PRIMARY KEY,
           ADD `' . self::subscriber_attribute_id . '` INT NOT NULL AUTO_INCREMENT FIRST,
@@ -608,7 +611,8 @@ class LL_mailer
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
           PRIMARY KEY (`id`)
-        ) ' . $wpdb->get_charset_collate() . ';'
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_abos . ' : ' .
@@ -1569,7 +1573,7 @@ class LL_mailer
   {
     ?>
     <div id="wpfooter" style="text-align: right; position: unset;">
-      Pluginversion <?=get_option(self::option_version)?>
+      Datenbank-Version <?=get_option(self::option_version)?>
     </div>
     <?php
   }
@@ -2307,7 +2311,7 @@ class LL_mailer
 <?php
             foreach ($test_posts->posts as $post) {
               $cats = wp_get_post_categories($post->ID);
-              $cats = array_map(function($cat) { return get_category($cat)->name; }, $cats);
+              array_walk($cats, function(&$cat, $key) { $cat = get_category($cat)->name; });
 ?>
                 <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
 <?php
@@ -2676,7 +2680,6 @@ class LL_mailer
             return (intval(empty($b['subscribed_at'])) - intval(empty($a['subscribed_at']))) ?: strcmp(strtolower($a[self::subscriber_attribute_mail]), strtolower($b[self::subscriber_attribute_mail]));
           });
 
-          $unconfirmed = true;
           foreach ($subscribers as &$subscriber) {
             $meta = json_decode($subscriber['meta'], true);
 ?>
