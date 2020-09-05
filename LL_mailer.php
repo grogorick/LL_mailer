@@ -59,6 +59,7 @@ class LL_mailer
   const table_messages                      = self::_ . '_messages';
   const table_abos                          = self::_ . '_abos';
   const table_subscribers                   = self::_ . '_subscribers';
+  const table_subscriptions                 = self::_ . '_subscriptions';
 
   const admin_page_settings                 = self::_ . '_settings';
   const admin_page_templates                = self::_ . '_templates';
@@ -359,6 +360,18 @@ class LL_mailer
     return $wpdb->query($sql);
   }
 
+  static function _db_insert_multiple($table, $keys, $values_array)
+  {
+    global $wpdb;
+    $sql = 'INSERT INTO ' . self::escape_key($wpdb->prefix . $table) . ' ( ' . implode(', ', self::escape_keys($keys)) . ' ) VALUES';
+    foreach ($values_array as &$values) {
+      $values = '( ' . implode(', ', self::escape_values($values)) . ' )';
+    }
+    $sql .= implode(', ', $values_array) . ';';
+    // self::message(htmlspecialchars($sql));
+    return $wpdb->query($sql);
+  }
+
   static function _db_update($table, $data, $where)
   {
     $data = self::escape($data);
@@ -489,6 +502,28 @@ class LL_mailer
     return $wpdb->query($sql);
   }
 
+  // subscriptions
+  // - subscriber
+  // - abo
+  static function db_add_subscriptions($subscriber, $abos)
+  {
+    return self::_db_insert_multiple(self::table_subscriptions, array('subscriber', 'abo'),
+      array_map(function($abo) use ($subscriber) {
+        return array($subscriber, $abo);
+      },
+      $abos));
+  }
+  static function db_delete_subscriptions($subscriber)
+  {
+    return self::_db_delete(self::table_subscriptions, array('subscriber' => $subscriber));
+  }
+  static function db_get_abos_by_subscriber($subscriber)
+  {
+    return array_map(
+      function($subscription) { return $subscription['abo']; },
+      self::_db_select(self::table_subscriptions, 'abo', array('subscriber' => $subscriber)));
+  }
+
 
 
   static function get_db_labels()
@@ -533,17 +568,6 @@ class LL_mailer
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
-    $r[] = self::table_abos . ' : ' .
-      ($wpdb->query('
-        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_abos) . ' (
-          `id` INT NOT NULL AUTO_INCREMENT,
-          `label` TINYTEXT NOT NULL,
-          `categories` TINYTEXT NOT NULL,
-          PRIMARY KEY (`id`)
-        )
-        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
-      ) ? $labels['table_created'] : self::db_get_error());
-
     $r[] = self::table_subscribers . ' : ' .
       ($wpdb->query('
         CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ' (
@@ -559,10 +583,40 @@ class LL_mailer
       ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::table_abos . ' : ' .
+      ($wpdb->query('
+        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_abos) . ' (
+          `id` INT NOT NULL AUTO_INCREMENT,
+          `label` TINYTEXT NOT NULL,
+          `categories` TINYTEXT NOT NULL,
+          PRIMARY KEY (`id`)
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
+      ) ? $labels['table_created'] : self::db_get_error());
+
+    $r[] = self::table_abos . ' : ' .
       (self::db_add_abo(array(
         'label' => __('Alle Posts', 'LL_mailer'),
         'categories' => '*')
       ) ? $labels['table_init'] : self::db_get_error());
+
+    $r[] = self::table_subscriptions . ' : ' .
+      ($wpdb->query('
+        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ' (
+          `subscriber` INT NOT NULL,
+          `abo` INT NOT NULL,
+          INDEX (`subscriber`),
+          INDEX (`abo`),
+          CONSTRAINT FOREIGN KEY (`subscriber`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '(`' . self::subscriber_attribute_id . '`)
+            ON UPDATE CASCADE
+            ON DELETE CASCADE,
+          CONSTRAINT FOREIGN KEY (`abo`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_abos) . '(`id`)
+            ON UPDATE CASCADE
+            ON DELETE CASCADE
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
+      ) ? $labels['table_created'] : self::db_get_error());
 
     $r[] = self::option_subscriber_attributes . ' : ' .
       (add_option(self::option_subscriber_attributes, array(
@@ -578,6 +632,7 @@ class LL_mailer
   static function check_for_db_updates()
   {
     if (is_admin()) {
+//      update_option(self::option_version, 0);
       $db_version = intval(get_option(self::option_version, 0));
       while (method_exists(self::_, 'update_' . ++$db_version)) {
         $r = self::{ 'update_' . $db_version }();
@@ -620,6 +675,35 @@ class LL_mailer
         'label' => __('Alle Posts', 'LL_mailer'),
         'categories' => '*')
       ) ? $labels['table_init'] : self::db_get_error());
+    $default_abo = $wpdb->insert_id;
+
+    $r[] = self::table_subscriptions . ' : ' .
+      ($wpdb->query('
+        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ' (
+          `subscriber` INT NOT NULL,
+          `abo` INT NOT NULL,
+          INDEX (`subscriber`),
+          INDEX (`abo`),
+          CONSTRAINT FOREIGN KEY (`subscriber`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '(`' . self::subscriber_attribute_id . '`)
+            ON UPDATE CASCADE
+            ON DELETE CASCADE,
+          CONSTRAINT FOREIGN KEY (`abo`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_abos) . '(`id`)
+            ON UPDATE CASCADE
+            ON DELETE CASCADE
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
+      ) ? $labels['table_created'] : self::db_get_error());
+
+    $subscribers = self::db_get_subscribers();
+    $r[] = self::table_subscriptions . ' : ' .
+      (self::_db_insert_multiple(
+        self::table_subscriptions, array('subscriber', 'abo'),
+        array_map(function($subscriber) use ($default_abo) {
+          return array($subscriber[self::subscriber_attribute_id], $default_abo);
+        }, $subscribers)
+      ) ? $labels['table_init'] : self::db_get_error());
 
     return $r;
   }
@@ -627,6 +711,7 @@ class LL_mailer
   static function uninstall()
   {
     global $wpdb;
+    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_abos) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_messages) . ';');
@@ -2671,9 +2756,15 @@ class LL_mailer
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
+            <th><?=__('Abo', 'LL_mailer')?></th>
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
+          $tmp_abos = self::db_get_abos(array('id', 'label'));
+          $abos = array();
+          foreach ($tmp_abos as $abo) {
+            $abos[$abo['id']] = $abo['label'];
+          }
           $subscribers = self::db_get_subscribers();
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
           usort($subscribers, function($a, $b) {
@@ -2693,6 +2784,13 @@ class LL_mailer
               <a href="<?=$edit_url . urlencode($subscriber[self::subscriber_attribute_mail])?>">
                 <?=$subscriber[self::subscriber_attribute_mail]?>
               </a>
+            </td>
+            <td>
+<?php
+              $subscriptions = self::db_get_abos_by_subscriber($subscriber[self::subscriber_attribute_id]);
+              array_walk($subscriptions, function(&$abo, $key) use ($abos) { $abo = $abos[$abo]; });
+              echo implode(', ', $subscriptions);
+?>
             </td>
             <td>
 <?php
@@ -3080,6 +3178,11 @@ class LL_mailer
     <div class="wrap">
       <h1><?=__('Abos', 'LL_mailer')?></h1>
       <p></p>
+      <style>
+      .new-abo-row td {
+        border-top: 1px solid black;
+      }
+      </style>
       <table class="widefat fixed striped">
         <tr>
           <td><?=__('Abo', 'LL_mailer')?></td>
@@ -3125,7 +3228,7 @@ class LL_mailer
         }
         $new_form_id = self::_ . '_form_new_abo';
 ?>
-        <tr>
+        <tr class="new-abo-row">
           <td>
             <form method="post" action="admin-post.php" style="display: inline;" id="<?=$new_form_id?>">
               <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
@@ -3372,7 +3475,7 @@ class LL_mailer
 
     add_action('transition_post_status', self::_('post_status_transition'), 10, 3);
 
-    add_action('rest_api_init', function ()
+    add_action('rest_api_init', function()
     {
       register_rest_route(self::_ . '/v1', 'get', array(
         'callback' => self::_('json_get')
