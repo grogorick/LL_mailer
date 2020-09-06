@@ -3403,6 +3403,13 @@ class LL_mailer
     $attributes = self::get_option_array(self::option_subscriber_attributes);
 ?>
     <form action="<?=self::json_url()?>subscribe" method="post" <?=$atts['html_attr'] ?: ''?>>
+<?php
+    if (isset($msg)) {
+?>
+      <p class="<?=self::_?>_message"><?=$msg?></p>
+<?php
+    }
+?>
       <table>
 <?php
     foreach ($attributes as $attr => $attr_label) {
@@ -3481,12 +3488,6 @@ class LL_mailer
           <div class="g-recaptcha" data-sitekey="<?=$recaptcha_website_key?>"></div>
         </td>
       </tr>
-<?php
-    }
-
-    if (isset($msg)) {
-?>
-      <tr><td></td><td><?=$msg?></td></tr>
 <?php
     }
 ?>
