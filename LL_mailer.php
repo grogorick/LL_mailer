@@ -16,6 +16,13 @@ if (!defined('ABSPATH')) {
   exit;
 }
 
+if (!function_exists('BETA')) {
+  function BETA()
+  {
+    return is_user_logged_in();
+  }
+}
+
 
 
 class LL_mailer
@@ -28,6 +35,7 @@ class LL_mailer
   const option_sender_mail                  = self::_ . '_sender_mail';
   const option_subscriber_attributes        = self::_ . '_subscriber_attributes';
   const option_subscribe_page               = self::_ . '_subscribe_page';
+  const option_show_abo_categories          = self::_ . '_subscribe_form_show_abo_categories';
   const option_form_submitted_page          = self::_ . '_form_submitted_page';
   const option_confirmation_msg             = self::_ . '_confirmation_msg';
   const option_confirmed_admin_msg          = self::_ . '_confirmed_admin_msg';
@@ -131,6 +139,7 @@ class LL_mailer
                                 array('Ist es tags hell oder dunkel?', 'hell'),
                                 array('Schwimmen Fische in Sand oder Wasser?', 'Wasser'));
 
+  const all_posts = '*';
   const user_msg = self::_ . '_usermsg';
   const retry = self::_ . '_retry';
   const list_item = '<span style="padding: 5px;">&ndash;</span>';
@@ -403,6 +412,11 @@ class LL_mailer
 
 
 
+  static function db_get_new_id() {
+	  global $wpdb;
+	  return $wpdb->insert_id;
+  }
+
   static function db_get_error() {
 	  global $wpdb;
 	  return $wpdb->last_error . '<br />' . $wpdb->last_query;
@@ -509,9 +523,9 @@ class LL_mailer
   {
     return self::_db_insert_multiple(self::table_subscriptions, array('subscriber', 'abo'),
       array_map(function($abo) use ($subscriber) {
-        return array($subscriber, $abo);
-      },
-      $abos));
+          return array($subscriber, $abo);
+        },
+        $abos));
   }
   static function db_delete_subscriptions($subscriber)
   {
@@ -596,7 +610,7 @@ class LL_mailer
     $r[] = self::table_abos . ' : ' .
       (self::db_add_abo(array(
         'label' => __('Alle Posts', 'LL_mailer'),
-        'categories' => '*')
+        'categories' => self::all_posts)
       ) ? $labels['table_init'] : self::db_get_error());
 
     $r[] = self::table_subscriptions . ' : ' .
@@ -673,9 +687,9 @@ class LL_mailer
     $r[] = self::table_abos . ' : ' .
       (self::db_add_abo(array(
         'label' => __('Alle Posts', 'LL_mailer'),
-        'categories' => '*')
+        'categories' => self::all_posts)
       ) ? $labels['table_init'] : self::db_get_error());
-    $default_abo = $wpdb->insert_id;
+    $default_abo = self::db_get_new_id();
 
     $r[] = self::table_subscriptions . ' : ' .
       ($wpdb->query('
@@ -723,6 +737,7 @@ class LL_mailer
     delete_option(self::option_sender_mail);
     delete_option(self::option_subscriber_attributes);
     delete_option(self::option_subscribe_page);
+    delete_option(self::option_show_abo_categories);
     delete_option(self::option_form_submitted_page);
     delete_option(self::option_confirmation_msg);
     delete_option(self::option_confirmed_admin_msg);
@@ -1333,20 +1348,39 @@ class LL_mailer
 
   static function subscribe($request)
   {
-    if (!empty($_POST) && isset($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail]) && !empty($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail])) {
+    $show_messge = function($msg = null) {
+      $redirect_page = get_option(self::option_subscribe_page);
+      if ($redirect_page !== false) {
+        $url = get_permalink(get_page_by_path($redirect_page));
+        if (!is_null($msg)) {
+          $url .= '?' . self::retry . '&' . self::user_msg . '=' . urlencode(base64_encode($msg));
+        }
+        wp_redirect($url);
+      }
+      else {
+        wp_redirect(home_url());
+      }
+      exit;
+    };
+
+    if (!empty($_POST)) {
+
+      if (!isset($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail]) || empty($_POST[self::_ . '_attr_' . self::subscriber_attribute_mail])) {
+        $show_messge(__('Bitte gib deine Email Adresse an.', 'LL_mailer'));
+      }
+
+      if (BETA())
+      {
+      if (!isset($_POST[self::_ . '_abos']) || empty($_POST[self::_ . '_abos'])) {
+        $show_messge(__('Bitte wähle mindestens einen Filter aus.', 'LL_mailer'));
+      }
+      }
 
       if (get_option(self::option_use_robot_check)) {
         $robot_check = isset($_POST[self::_ . '_robot_check']) ? $_POST[self::_ . '_robot_check'] : null;
         $robot_check_2 = intval($_POST[self::_ . '_robot_check_2']);
         if (is_null($robot_check) || strtolower($robot_check) != strtolower(self::robot_questions[$robot_check_2][1])) {
-          $subscribe_page = get_option(self::option_subscribe_page);
-          if ($subscribe_page !== false) {
-            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::retry . '&' . self::user_msg . '=' . urlencode(base64_encode(__('Oh oh. Deine Antwort passt nicht zur Sicherheitsfrage.', 'LL_mailer'))));
-          }
-          else {
-            wp_redirect(home_url());
-          }
-          exit;
+          $show_messge(__('Bitte beantworte die Sicherheitsfrage.', 'LL_mailer'));
         }
       }
 
@@ -1371,14 +1405,7 @@ class LL_mailer
           }
         }
         if (!is_null($captcha_failed)) {
-          $subscribe_page = get_option(self::option_subscribe_page);
-          if ($subscribe_page !== false) {
-            wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::retry . '&' . self::user_msg . '=' . urlencode(base64_encode($captcha_failed)));
-          }
-          else {
-            wp_redirect(home_url());
-          }
-          exit;
+          $show_messge($captcha_failed);
         }
       }
 
@@ -1389,8 +1416,13 @@ class LL_mailer
           $new_subscriber[$attr] = $_POST[self::_ . '_attr_' . $attr];
         }
       }
-
       self::db_add_subscriber($new_subscriber);
+      $new_subscriber_id = self::db_get_new_id();
+
+      if (BETA())
+      {
+      self::db_add_subscriptions($new_subscriber_id, array_keys($_POST[self::_ . '_abos']));
+      }
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
       if ($confirmation_msg !== false) {
@@ -1401,13 +1433,7 @@ class LL_mailer
             wp_redirect(get_permalink(get_page_by_path($confirmation_sent_page)) . '?subscriber=' . urlencode(base64_encode($new_subscriber[self::subscriber_attribute_mail])));
           }
           else {
-            $subscribe_page = get_option(self::option_subscribe_page);
-            if ($subscribe_page !== false) {
-              wp_redirect(get_permalink(get_page_by_path($subscribe_page)) . '?' . self::user_msg .'=' . urlencode(base64_encode(sprintf(__('Du erhältst in diesem Moment eine E-Mail an %s. Bitte nutze den Link darin, um deine Anmeldung zu bestätigen.', 'LL_mailer'), $new_subscriber[self::subscriber_attribute_mail]))));
-            }
-            else {
-              wp_redirect(home_url());
-            }
+            $show_messge(sprintf(__('Du erhältst in diesem Moment eine E-Mail an %s. Bitte nutze den Link darin, um deine Anmeldung zu bestätigen.', 'LL_mailer'), $new_subscriber[self::subscriber_attribute_mail]));
           }
           exit;
         }
@@ -1419,13 +1445,7 @@ class LL_mailer
         self::confirm_subscriber($new_subscriber[self::subscriber_attribute_mail]);
       }
     }
-    $subscribe_page = get_option(self::option_subscribe_page);
-    if ($subscribe_page !== false) {
-      wp_redirect(get_permalink(get_page_by_path($subscribe_page)));
-    }
-    else {
-      wp_redirect(home_url());
-    }
+    $show_messge();
     exit;
   }
 
@@ -1850,6 +1870,27 @@ class LL_mailer
 
           <tr>
             <th scope="row" colspan="2">
+              <h1><?=__('Anmeldeformular', 'LL_mailer')?></h1>
+            </th>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_show_abo_categories?>" title="<?=__('Post-Kategorien zu den wählbaren Abos anzeigen', 'LL_mailer')?>">
+                <?=__('Post-Kategorien anzeigen', 'LL_mailer')?></label>
+            </td>
+            <td>
+<?php
+              $show_categories = get_option(self::option_show_abo_categories);
+?>
+              <select name="<?=self::option_show_abo_categories?>">
+                <option value="" <?=!$show_categories ? 'selected' : ''?>><?=__('Nicht anzeigen', 'LL_mailer')?></option>
+                <option value="brackets" <?=$show_categories === 'brackets' ? 'selected' : ''?>><?=__('In Klammern', 'LL_mailer')?></option>
+                <option value="tooltip" <?=$show_categories === 'tooltip' ? 'selected' : ''?>><?=__('Als Tooltip', 'LL_mailer')?></option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row" colspan="2">
               <?=__('Spam-Erkennung für die Anmeldung / Variante 1: Zufällige Frage', 'LL_mailer')?>
             </th>
           </tr>
@@ -1991,6 +2032,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_sender_name);
     register_setting(self::_ . '_general', self::option_sender_mail);
     register_setting(self::_ . '_general', self::option_subscribe_page);
+    register_setting(self::_ . '_general', self::option_show_abo_categories);
     register_setting(self::_ . '_general', self::option_form_submitted_page);
     register_setting(self::_ . '_general', self::option_confirmation_msg);
     register_setting(self::_ . '_general', self::option_confirmed_admin_msg);
@@ -3205,14 +3247,14 @@ class LL_mailer
             <select name="new_abo_categories[]" multiple size="5" class="regular-text" form="<?=$form_id?>">
 <?php
             foreach ($categories as &$cat) {
-              $selected = ($abo['categories'] !== '*' && in_array($cat->term_id, $abo_categories)) ? 'selected' : '';
+              $selected = ($abo['categories'] !== self::all_posts && in_array($cat->term_id, $abo_categories)) ? 'selected' : '';
  ?>
               <option value="<?=$cat->term_id?>" <?=$selected?>><?=$cat->name?></option>
 <?php
             }
  ?>
-            </select>
-            <label><input type="checkbox" name="new_abo_all_categories" form="<?=$form_id?>" <?=$abo['categories'] === '*' ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
+            </select><br />
+            <label><input type="checkbox" name="new_abo_all_categories" form="<?=$form_id?>" <?=$abo['categories'] === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
           </td><td>
             <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $form_id)); ?>
 
@@ -3244,7 +3286,7 @@ class LL_mailer
 <?php
             }
  ?>
-            </select>
+            </select><br />
             <input type="checkbox" name="abo_all_categories" form="<?=$new_form_id?>" />
           </td><td>
             <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $new_form_id)); ?>
@@ -3367,10 +3409,31 @@ class LL_mailer
         <tr class="<?=self::_?>_row_abos">
           <td>Filter</td>
           <td>
+            <input type="hidden" name='_wpnonce' value="<?=wp_create_nonce('wp_rest')?>" />
 <?php
           $abos = self::db_get_abos('*');
+          $show_categories = get_option(self::option_show_abo_categories);
+          $categories = array();
+          if ($show_categories) {
+            $tmp_categories = get_categories();
+            array_walk($tmp_categories, function(&$cat, $key) use (&$categories) {
+              $categories[$cat->term_id] = $cat->name;
+            });
+          }
           foreach ($abos as &$abo) {
-            echo '<input type="checkbox" name="abo_' . $abo['id'] . '" id="' . self::_ . '_abo_' . $abo['id'] . '" /><label for="' . self::_ . '_abo_' . $abo['id'] . '">' . $abo['label'] . '</label>';
+            if ($abo['categories'] === self::all_posts) {
+              $cats_str = '';
+            }
+            else {
+              $cats = array_filter(explode('|', $abo['categories']));
+              $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
+            }
+?>
+            <input type="checkbox" name="<?=self::_?>_abos[<?=$abo['id']?>]" id="<?=self::_ . '_abos[' . $abo['id']?>]" />
+            <label for="<?=self::_ . '_abos[' . $abo['id']?>]" <?=($show_categories === 'tooltip' && $cats_str) ? 'title="' . $cats_str . '"' : ''?>>
+              <?=$abo['label'] . (($show_categories === 'brackets' && $cats_str) ? ' (' . $cats_str . ')' : '')?>
+            </label>
+<?php
           }
 ?>
           </td>
