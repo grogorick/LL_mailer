@@ -602,6 +602,7 @@ class LL_mailer
           `id` INT NOT NULL AUTO_INCREMENT,
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
+          `preselected` BOOLEAN NOT NULL,
           PRIMARY KEY (`id`)
         )
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
@@ -679,6 +680,7 @@ class LL_mailer
           `id` INT NOT NULL AUTO_INCREMENT,
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
+          `preselected` BOOLEAN NOT NULL,
           PRIMARY KEY (`id`)
         )
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
@@ -3241,7 +3243,12 @@ class LL_mailer
               <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
               <?php wp_nonce_field(self::_ . '_abo_edit'); ?>
               <input type="hidden" name="abo" value="<?=$abo['id']?>" />
-              <input type="text" name="new_abo_label" value="<?=$abo['label']?>" class="regular-text" />
+              <p>
+                <input type="text" name="new_abo_label" value="<?=$abo['label']?>" class="regular-text" />
+              </p>
+              <p>
+                <label><input type="checkbox" name="new_abo_preselected" <?=$abo['preselected'] ? 'checked' : ''?> /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
+              </p>
             </form>
           </td><td>
             <select name="new_abo_categories[]" multiple size="5" class="regular-text" form="<?=$form_id?>">
@@ -3275,7 +3282,12 @@ class LL_mailer
             <form method="post" action="admin-post.php" style="display: inline;" id="<?=$new_form_id?>">
               <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
               <?php wp_nonce_field(self::_ . '_abo_add'); ?>
-              <input type="text" name="abo" placeholder="<?=__('Neues Abo', 'LL_mailer')?>" class="regular-text" />
+              <p>
+                <input type="text" name="abo" placeholder="<?=__('Neues Abo', 'LL_mailer')?>" class="regular-text" /><br />
+              </p>
+              <p>
+                <label><input type="checkbox" name="abo_preselected" /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
+              </p>
             </form>
           </td><td>
             <select name="abo_categories[]" multiple size="5" placeholder="<?=__('Post-Kategorien', 'LL_mailer')?>" class="regular-text" form="<?=$new_form_id?>">
@@ -3330,8 +3342,10 @@ class LL_mailer
               exit;
             }
             self::db_add_abo(array(
-              'label' => $abo_label,
-               'categories' => $abo_all_categories ? '*' : ('|' . implode('|', $abo_categories) . '|')));
+                'label' => $abo_label,
+                'categories' => $abo_all_categories ? self::all_posts : ('|' . implode('|', $abo_categories) . '|'),
+                'preselected' => !!$_POST['abo_preselected']
+              ));
 
             self::message(sprintf(__('Neues Abo <b>%s</b> hinzugefügt.', 'LL_mailer'), $abo_label));
           }
@@ -3349,8 +3363,10 @@ class LL_mailer
             }
 
             self::db_update_abo(array(
-              'label' => $new_abo_label,
-               'categories' => $new_abo_all_categories ? '*' : ('|' . implode('|', $new_abo_categories) . '|')), $abo_id);
+                'label' => $new_abo_label,
+                'categories' => $new_abo_all_categories ? self::all_posts : ('|' . implode('|', $new_abo_categories) . '|'),
+                'preselected' => !!$_POST['new_abo_preselected']
+              ), $abo_id);
 
             if ($old_abo['label'] !== $new_abo_label) {
               self::message(sprintf(__('Abo <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $old_abo['label'], $new_abo_label));
@@ -3429,7 +3445,7 @@ class LL_mailer
               $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
             }
 ?>
-            <input type="checkbox" name="<?=self::_?>_abos[<?=$abo['id']?>]" id="<?=self::_ . '_abos[' . $abo['id']?>]" />
+            <input type="checkbox" name="<?=self::_?>_abos[<?=$abo['id']?>]" id="<?=self::_ . '_abos[' . $abo['id']?>]" <?=$abo['preselected'] ? 'checked' : ''?> />
             <label for="<?=self::_ . '_abos[' . $abo['id']?>]" <?=($show_categories === 'tooltip' && $cats_str) ? 'title="' . $cats_str . '"' : ''?>>
               <?=$abo['label'] . (($show_categories === 'brackets' && $cats_str) ? ' (' . $cats_str . ')' : '')?>
             </label>
