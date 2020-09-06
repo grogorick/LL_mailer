@@ -1691,6 +1691,11 @@ class LL_mailer
   {
     $messages = self::db_get_messages(array('slug', 'subject'));
 ?>
+    <style>
+      td.section-description {
+        padding-top: 0;
+      }
+    </style>
     <div class="wrap">
       <h1><?=__('Allgemeine Einstellungen', 'LL_mailer')?></h1>
 
@@ -1700,6 +1705,11 @@ class LL_mailer
 
           <tr>
             <th scope="row"><?=__('Absender', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td colspan="2" class="section-description">
+              <p class="description"><?=__('Name und Email-Adresse, die als Absender der Emails verwendet werden sollen.', 'LL_mailer')?></p>
+            </td>
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>>
@@ -1727,6 +1737,11 @@ class LL_mailer
             <th scope="row" colspan="2"><?=__('Blogseiten', 'LL_mailer')?></th>
           </tr>
           <tr>
+            <td colspan="2" class="section-description">
+              <p class="description"><?=sprintf(__('Titelform/Slug der %s, zu denen Besucher bei bestimmten Ereignissen weitergeleitet werden sollen.', 'LL_mailer'), sprintf('<a href="' . get_admin_url() . 'edit.php?post_type=page">%s</a>', __('Blogseiten', 'LL_mailer')))?></p>
+            </td>
+          </tr>
+          <tr>
             <td <?=self::secondary_settings_label?>>
               <label for="<?=self::option_subscribe_page?>" title="<?=__('Die Blogseite, auf der Besucher sich einschreiben können', 'LL_mailer')?>">
                 <?=__('E-Mails abonnieren', 'LL_mailer')?></label>
@@ -1740,7 +1755,7 @@ class LL_mailer
           <tr>
             <td <?=self::secondary_settings_label?>>
               <label for="<?=self::option_form_submitted_page?>" title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie das Anmeldeformular abgeschickt haben', 'LL_mailer')?>">
-                <?=__('Anmeldung abgeschickt', 'LL_mailer')?></label>
+                <?=__('Bestätigungs-Email abgeschickt', 'LL_mailer')?></label>
             </td>
             <td>
               <input type="text" id="<?=self::option_form_submitted_page?>" name="<?=self::option_form_submitted_page?>" value="<?=esc_attr(get_option(self::option_form_submitted_page))?>" placeholder="Seite" class="regular-text" />
@@ -1751,7 +1766,7 @@ class LL_mailer
           <tr>
             <td <?=self::secondary_settings_label?> title="<?=__('Die Blogseite, auf die Besucher weitergeleitet werden, wenn sie ihre E-Mail Adresse bestätigt haben', 'LL_mailer')?>">
               <label for="<?=self::option_confirmed_page?>">
-                <?=__('E-Mail bestätigt', 'LL_mailer')?></label>
+                <?=__('Anmeldung abgeschlossen / E-Mail bestätigt', 'LL_mailer')?></label>
             </td>
             <td>
               <input type="text" id="<?=self::option_confirmed_page?>" name="<?=self::option_confirmed_page?>" value="<?=esc_attr(get_option(self::option_confirmed_page))?>" placeholder="Seite" class="regular-text" />
@@ -1774,6 +1789,11 @@ class LL_mailer
 
           <tr>
             <th scope="row" colspan="2"><?=__('E-Mails an Abonnenten', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td colspan="2" class="section-description">
+              <p class="description"><?=sprintf(__('Auswahl der %s, die bei bestimmten Ereignissen an (potentielle) Abonnenten gesendet werden.', 'LL_mailer'), sprintf('<a href="' . self::admin_url() . self::admin_page_messages . '">%s</a>', __('Nachrichten', 'LL_mailer')))?></p>
+            </td>
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>>
@@ -1826,6 +1846,11 @@ class LL_mailer
 
           <tr>
             <th scope="row" colspan="2"><?=__('E-Mails an dich (Absender)', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td colspan="2" class="section-description">
+              <p class="description"><?=sprintf(__('Auswahl der %s, die bei bestimmten Ereignissen an dich (Absender, siehe oben) gesendet werden.', 'LL_mailer'), sprintf('<a href="' . self::admin_url() . self::admin_page_messages . '">%s</a>', __('Nachrichten', 'LL_mailer')))?></p>
+            </td>
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>>
@@ -1897,7 +1922,7 @@ class LL_mailer
             </th>
           </tr>
           <tr>
-            <td colspan="2" style="padding-top: 0">
+            <td colspan="2" class="section-description">
               <p class="description"><?=__('Eine der folgenden Fragen wird zufällig ausgewählt und muss richtig beantwortet werden.', 'LL_mailer')?></p>
             </td>
           </tr>
@@ -1925,7 +1950,7 @@ class LL_mailer
             </th>
           </tr>
           <tr>
-            <td colspan="2" style="padding-top: 0">
+            <td colspan="2" class="section-description">
               <p class="description"><?=preg_replace('/%(.+)%/', '<a href="https://www.google.com/recaptcha/admin/" target="_blank">$1</a>', __('Wird aktiviert, sobald beide %Schlüssel% eingetragen sind.', 'LL_mailer'))?></p>
             </td>
           </tr>
@@ -2800,7 +2825,7 @@ class LL_mailer
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
-            <th><?=__('Abo', 'LL_mailer')?></th>
+            <th><?=__('Abos', 'LL_mailer')?></th>
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
