@@ -456,14 +456,18 @@ class LL_mailer
   // - id
   // - label
   // - categories
+  // - preselected
   static function db_add_abo($abo) { return self::_db_insert(self::table_abos, $abo); }
   static function db_update_abo($abo, $id) { return self::_db_update(self::table_abos, $abo, array('id' => $id)); }
   static function db_delete_abo($id) { return self::_db_delete(self::table_abos, array('id' => $id)); }
   static function db_get_abo_by_id($id) { return self::_db_select_row(self::table_abos, '*', array('id' => $id)); }
   static function db_get_abos($what) { return self::_db_select(self::table_abos, $what); }
   static function db_abo_exists($where) { return intval(self::_db_select_row(self::table_abos, '#COUNT(0)', $where)['COUNT(0)']); }
+  static function db_implode_abo_categories($categories) { return '|' . implode('|', $categories) . '|'; }
+  static function db_explode_abo_categories($categories) { return array_filter(explode('|', $categories)); }
 
   // subscribers
+  // - id
   // - mail
   // - subscribed_at
   // - meta
@@ -519,23 +523,23 @@ class LL_mailer
   // subscriptions
   // - subscriber
   // - abo
-  static function db_add_subscriptions($subscriber, $abos)
+  static function db_add_subscriptions($subscriber_id, $abo_ids)
   {
     return self::_db_insert_multiple(self::table_subscriptions, array('subscriber', 'abo'),
-      array_map(function($abo) use ($subscriber) {
-          return array($subscriber, $abo);
+      array_map(function($abo) use ($subscriber_id) {
+          return array($subscriber_id, $abo);
         },
-        $abos));
+        $abo_ids));
   }
-  static function db_delete_subscriptions($subscriber)
+  static function db_delete_subscriptions($subscriber_id)
   {
-    return self::_db_delete(self::table_subscriptions, array('subscriber' => $subscriber));
+    return self::_db_delete(self::table_subscriptions, array('subscriber' => $subscriber_id));
   }
-  static function db_get_abos_by_subscriber($subscriber)
+  static function db_get_abos_by_subscriber($subscriber_id)
   {
     return array_map(
       function($subscription) { return $subscription['abo']; },
-      self::_db_select(self::table_subscriptions, 'abo', array('subscriber' => $subscriber)));
+      self::_db_select(self::table_subscriptions, 'abo', array('subscriber' => $subscriber_id)));
   }
 
 
@@ -2931,13 +2935,13 @@ class LL_mailer
             }
 ?>
             <tr>
-              <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></td>
+              <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></th>
               <td>
                 <input type="checkbox" name="meta_<?=self::meta_disabled?>" <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? 'checked' : ''?> />
               </td>
             </tr>
             <tr>
-              <th scope="row"><?=__('Testempfänger', 'LL_mailer')?></td>
+              <th scope="row"><?=__('Testempfänger', 'LL_mailer')?></th>
               <td>
                 <input type="checkbox" name="meta_<?=self::meta_test_receiver?>" <?=(isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) ? 'checked' : ''?> />
               </td>
@@ -3260,7 +3264,7 @@ class LL_mailer
 <?php
         foreach ($abos as &$abo) {
           $form_id = self::_ . '_form_abo_' . $abo['id'];
-          $abo_categories = array_filter(explode('|', $abo['categories']));
+          $abo_categories = self::db_explode_abo_categories($abo['categories']);
 ?>
         <tr>
           <td>
@@ -3368,7 +3372,7 @@ class LL_mailer
             }
             self::db_add_abo(array(
                 'label' => $abo_label,
-                'categories' => $abo_all_categories ? self::all_posts : ('|' . implode('|', $abo_categories) . '|'),
+                'categories' => $abo_all_categories ? self::all_posts : self::db_implode_abo_categories($abo_categories),
                 'preselected' => !!$_POST['abo_preselected']
               ));
 
@@ -3389,7 +3393,7 @@ class LL_mailer
 
             self::db_update_abo(array(
                 'label' => $new_abo_label,
-                'categories' => $new_abo_all_categories ? self::all_posts : ('|' . implode('|', $new_abo_categories) . '|'),
+                'categories' => $new_abo_all_categories ? self::all_posts : self::db_implode_abo_categories($new_abo_categories),
                 'preselected' => !!$_POST['new_abo_preselected']
               ), $abo_id);
 
@@ -3473,7 +3477,7 @@ class LL_mailer
               $cats_str = '';
             }
             else {
-              $cats = array_filter(explode('|', $abo['categories']));
+              $cats = self::db_explode_abo_categories($abo['categories']);
               $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
             }
 ?>
