@@ -2919,6 +2919,7 @@ class LL_mailer
         <form method="post" action="admin-post.php">
           <input type="hidden" name="action" value="<?=self::_?>_subscriber_action" />
           <?php wp_nonce_field(self::_ . '_subscriber_edit'); ?>
+          <input type="hidden" name="subscriber_id" value="<?=$subscriber['id']?>" />
           <input type="hidden" name="subscriber_mail" value="<?=$subscriber_mail?>" />
           <table class="form-table">
 <?php
@@ -2933,7 +2934,24 @@ class LL_mailer
             </tr>
 <?php
             }
+            $abos = self::db_get_abos(array('id', 'label'));
+            $subscriptions = self::db_get_abos_by_subscriber($subscriber[self::subscriber_attribute_id]);
 ?>
+            <tr>
+              <th scope="row"><?=__('Abos', 'LL_mailer')?></th>
+              <td>
+                <select name="abos[]" multiple size="5" class="regular-text">
+<?php
+                foreach ($abos as &$abo) {
+                  $selected = (in_array($abo['id'], $subscriptions)) ? 'selected' : '';
+?>
+                  <option value="<?=$abo['id']?>" <?=$selected?>><?=$abo['label']?></option>
+<?php
+                }
+?>
+                </select>
+              </td>
+            </tr>
             <tr>
               <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></th>
               <td>
@@ -3035,6 +3053,7 @@ class LL_mailer
         }
 
         else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_subscriber_edit')) {
+          $subscriber_id = $_POST['subscriber_' . self::subscriber_attribute_id];
           $new_subscriber_mail = trim($_POST['attr_' . self::subscriber_attribute_mail]);
           if (!filter_var($new_subscriber_mail, FILTER_VALIDATE_EMAIL)) {
             self::message(sprintf(__('Die neue E-Mail Adresse <b>%s</b> ist ungültig.', 'LL_mailer'), $new_subscriber_mail));
@@ -3065,6 +3084,9 @@ class LL_mailer
           $subscriber[self::subscriber_attribute_meta] = addslashes(json_encode($meta));
 
           self::db_update_subscriber($subscriber, $subscriber_mail);
+
+          self::db_delete_subscriptions($subscriber_id);
+          self::db_add_subscriptions($subscriber_id, $_POST['abos']);
 
           self::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $new_subscriber_mail));
           wp_redirect(self::admin_url() . self::admin_page_subscriber_edit . urlencode($new_subscriber_mail));
