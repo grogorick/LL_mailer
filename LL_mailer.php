@@ -325,15 +325,24 @@ class LL_mailer
     return $ret;
   }
 
-  static function build_where($where)
+  static function build_where_recursive($where)
   {
     if (empty($where)) {
-      return '';
+      return null;
     }
     $ret = array();
     foreach ($where as $key => &$value) {
-      if (is_array($value)) {
-        if (isset($value[1])) {
+      if ($key === 0 && is_string($value)) {
+        continue;
+      }
+      if (is_array($value) && isset($value[0])) {
+        if (is_array($value[0])) {
+          $w = self::build_where_recursive($value[0]);
+          if (!is_null($w)) {
+            $ret[] = $w;
+          }
+        }
+        else if (isset($value[1])) {
           $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
         }
         else {
@@ -344,7 +353,17 @@ class LL_mailer
         $ret[] = self::escape_key($key) . ' = ' . self::escape_value($value);
       }
     }
-    return ' WHERE ' . implode(' AND ', $ret);
+    return '(' . implode(' ' . (isset($where[0]) ? $where[0] : 'AND') . ' ', $ret) . ')';
+  }
+
+  static function build_where($where)
+  {
+    // self::message(str_replace(' ', '&nbsp;', print_r($where, true)));
+    $w = self::build_where_recursive($where);
+    if (!is_null($w)) {
+      return ' WHERE ' . $w;
+    }
+    return $w;
   }
 
   static function _db_build_select($table, $what, $where)
@@ -462,6 +481,15 @@ class LL_mailer
   static function db_delete_abo($id) { return self::_db_delete(self::table_abos, array('id' => $id)); }
   static function db_get_abo_by_id($id) { return self::_db_select_row(self::table_abos, '*', array('id' => $id)); }
   static function db_get_abos($what) { return self::_db_select(self::table_abos, $what); }
+  static function db_get_abos_by_categories($what, $categories)
+  {
+    return self::_db_select(self::table_abos, $what,
+      array_merge(array(
+        'OR',
+        'categories' => self::all_posts),
+      array_map(function($cat) { return array(array(
+        'categories' => array('LIKE', '%|' . $cat . '|%'))); }, $categories)));
+  }
   static function db_abo_exists($where) { return intval(self::_db_select_row(self::table_abos, '#COUNT(0)', $where)['COUNT(0)']); }
   static function db_implode_abo_categories($categories) { return '|' . implode('|', $categories) . '|'; }
   static function db_explode_abo_categories($categories) { return array_filter(explode('|', $categories)); }
@@ -543,6 +571,30 @@ class LL_mailer
   }
 
 
+
+  static function filter_subscribers_by_post(&$subscribers, $post_id)
+  {
+    if (is_null($post_id)) {
+      return $subscribers;
+    }
+    $all_abos = self::db_get_abos(array('id', 'categories'));
+    $categories_by_abo = array();
+    foreach ($all_abos as &$abo) {
+      $categories_by_abo[$abo['id']] = ($abo['categories'] === self::all_posts) ? self::all_posts : self::db_explode_abo_categories($abo['categories']);
+    }
+    $post_categories = wp_get_post_categories($post_id);
+    return array_filter($subscribers, function(&$subscriber) use ($post_categories, $categories_by_abo) {
+      $user_abo_ids = self::db_get_abos_by_subscriber($subscriber['id']);
+      $user_abo_categories = array();
+      foreach ($user_abo_ids as &$abo_id) {
+        if ($categories_by_abo[$abo_id] == self::all_posts) {
+          return true;
+        }
+        $user_abo_categories = array_merge($user_abo_categories, $categories_by_abo[$abo_id]);
+      }
+      return !empty(array_intersect($post_categories, $user_abo_categories));
+    });
+  }
 
   static function get_db_labels()
   {
@@ -1291,11 +1343,8 @@ class LL_mailer
     if (isset($request['msg']) && isset($request['to'])) {
       switch ($request['to']) {
         case 'all':
-          $msg = $request['msg'];
-          $errors = array();
-          $num_mails_sent = 0;
-          $post = null;
           $subscribers = self::db_get_subscribers(true, true);
+          $subscribers = self::filter_subscribers_by_post($subscribers, $request['post']);
           list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers, true, $request['post']);
           $post_link = '<a href="' . get_permalink($request['post']) . '">' . get_the_title($request['post']) . '</a>';
           if ($num_mails_sent > 0) {
@@ -2701,10 +2750,28 @@ class LL_mailer
             </td>
           </tr>
           <tr>
+            <th><?=__('Abos (Post-Kategorien)', 'LL_mailer')?></th>
+            <td>
+              <?php
+              $post_category_ids = wp_get_post_categories($post_id);
+              $post_categories = array();
+              $tmp_categories = get_categories();
+              foreach ($tmp_categories as &$cat) {
+                if (in_array($cat->term_id, $post_category_ids)) {
+                  $post_categories[] = $cat->name;
+                }
+              }
+              $abos = self::db_get_abos_by_categories('label', $post_category_ids);
+              echo implode(', ', array_map(function($a) { return $a['label']; }, $abos)) . ' (' . implode(', ', $post_categories) . ')';
+              ?>
+            </td>
+          </tr>
+          <tr>
             <th><?=__('Empfänger', 'LL_mailer')?></th>
             <td>
               <?php
               $receivers = self::db_get_subscribers(true, true);
+              $receivers = self::filter_subscribers_by_post($receivers, $post_id);
               echo implode(', ', array_map(function($r) { return $r[self::subscriber_attribute_name]; }, $receivers));
               ?>
             </td>
