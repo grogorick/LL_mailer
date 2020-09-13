@@ -491,8 +491,17 @@ class LL_mailer
         'categories' => array('LIKE', '%|' . $cat . '|%'))); }, $categories)));
   }
   static function db_filter_exists($where) { return intval(self::_db_select_row(self::table_filters, '#COUNT(0)', $where)['COUNT(0)']); }
-  static function db_implode_filter_categories($categories) { return '|' . implode('|', $categories) . '|'; }
-  static function db_explode_filter_categories($categories) { return array_filter(explode('|', $categories)); }
+  static function implode_filter_categories($categories) { return '|' . implode('|', $categories) . '|'; }
+  static function explode_filter_categories($categories)
+  {
+    if (is_array($categories)) {
+      foreach ($categories as &$item) {
+        $item['categories'] = self::explode_filter_categories($item['categories']);
+      }
+      return $categories;
+    }
+    return ($categories === self::all_posts) ? self::all_posts : array_filter(explode('|', $categories));
+  }
 
   // subscribers
   // - id
@@ -563,7 +572,7 @@ class LL_mailer
   {
     return self::_db_delete(self::table_subscriptions, array('subscriber' => $subscriber_id));
   }
-  static function db_get_filters_by_subscriber($subscriber_id)
+  static function db_get_filter_ids_by_subscriber($subscriber_id)
   {
     return array_map(
       function($subscription) { return $subscription['filter']; },
@@ -572,27 +581,34 @@ class LL_mailer
 
 
 
+  static function array_assoc_by($arr, $key = 'id') {
+	  $ret = array();
+    foreach ($arr as $item) {
+      if (array_key_exists($key, $item)) {
+        $ret[$item[$key]] = $item;
+      }
+    }
+    return $ret;
+  }
+
   static function filter_subscribers_by_post(&$subscribers, $post_id)
   {
     if (is_null($post_id)) {
       return $subscribers;
     }
-    $all_filters = self::db_get_filters(array('id', 'categories'));
-    $categories_by_filter = array();
-    foreach ($all_filters as &$filter) {
-      $categories_by_filter[$filter['id']] = ($filter['categories'] === self::all_posts) ? self::all_posts : self::db_explode_filter_categories($filter['categories']);
-    }
+    $filters = self::array_assoc_by(self::db_get_filters(array('id', 'categories')));
+    $filters = self::explode_filter_categories($filters);
     $post_categories = wp_get_post_categories($post_id);
-    return array_filter($subscribers, function(&$subscriber) use ($post_categories, $categories_by_filter) {
-      $user_filter_ids = self::db_get_filters_by_subscriber($subscriber['id']);
-      $user_filter_categories = array();
-      foreach ($user_filter_ids as &$filter_id) {
-        if ($categories_by_filter[$filter_id] == self::all_posts) {
+    return array_filter($subscribers, function(&$subscriber) use ($post_categories, $filters) {
+      $subscriber_filter_ids = self::db_get_filter_ids_by_subscriber($subscriber['id']);
+      $subscriber_filter_categories = array();
+      foreach ($subscriber_filter_ids as &$filter_id) {
+        if ($filters[$filter_id]['categories'] == self::all_posts) {
           return true;
         }
-        $user_filter_categories = array_merge($user_filter_categories, $categories_by_filter[$filter_id]);
+        $subscriber_filter_categories = array_merge($subscriber_filter_categories, $filters[$filter_id]['categories']);
       }
-      return !empty(array_intersect($post_categories, $user_filter_categories));
+      return !empty(array_intersect($post_categories, $subscriber_filter_categories));
     });
   }
 
@@ -2904,11 +2920,7 @@ class LL_mailer
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
-          $tmp_filters = self::db_get_filters(array('id', 'label'));
-          $filters = array();
-          foreach ($tmp_filters as $filter) {
-            $filters[$filter['id']] = $filter['label'];
-          }
+          $filters = self::array_assoc_by(self::db_get_filters(array('id', 'label')));
           $subscribers = self::db_get_subscribers();
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
           usort($subscribers, function($a, $b) {
@@ -2931,9 +2943,9 @@ class LL_mailer
             </td>
             <td>
 <?php
-              $subscriptions = self::db_get_filters_by_subscriber($subscriber[self::subscriber_attribute_id]);
-              array_walk($subscriptions, function(&$filter, $key) use ($filters) { $filter = $filters[$filter]; });
-              echo implode(', ', $subscriptions);
+              $subscriber_filters = self::db_get_filter_ids_by_subscriber($subscriber[self::subscriber_attribute_id]);
+              array_walk($subscriber_filters, function(&$filter_id, $key) use ($filters) { $filter_id = $filters[$filter_id]['label']; });
+              echo implode(', ', $subscriber_filters);
 ?>
             </td>
             <td>
@@ -3006,7 +3018,7 @@ class LL_mailer
 <?php
             }
             $filters = self::db_get_filters(array('id', 'label'));
-            $subscriptions = self::db_get_filters_by_subscriber($subscriber[self::subscriber_attribute_id]);
+            $subscriber_filters = self::db_get_filter_ids_by_subscriber($subscriber[self::subscriber_attribute_id]);
 ?>
             <tr>
               <th scope="row"><?=__('Filter', 'LL_mailer')?></th>
@@ -3014,7 +3026,7 @@ class LL_mailer
                 <select name="filters[]" multiple size="5" class="regular-text">
 <?php
                 foreach ($filters as &$filter) {
-                  $selected = (in_array($filter['id'], $subscriptions)) ? 'selected' : '';
+                  $selected = (in_array($filter['id'], $subscriber_filters)) ? 'selected' : '';
 ?>
                   <option value="<?=$filter['id']?>" <?=$selected?>><?=$filter['label']?></option>
 <?php
@@ -3357,7 +3369,7 @@ class LL_mailer
 <?php
         foreach ($filters as &$filter) {
           $form_id = self::_ . '_form_filter_' . $filter['id'];
-          $filter_categories = self::db_explode_filter_categories($filter['categories']);
+          $filter_categories = self::explode_filter_categories($filter['categories']);
 ?>
         <tr>
           <td>
@@ -3376,14 +3388,14 @@ class LL_mailer
             <select name="new_filter_categories[]" multiple size="5" class="regular-text" form="<?=$form_id?>">
 <?php
             foreach ($categories as &$cat) {
-              $selected = ($filter['categories'] !== self::all_posts && in_array($cat->term_id, $filter_categories)) ? 'selected' : '';
+              $selected = ($filter_categories !== self::all_posts && in_array($cat->term_id, $filter_categories)) ? 'selected' : '';
  ?>
               <option value="<?=$cat->term_id?>" <?=$selected?>><?=$cat->name?></option>
 <?php
             }
  ?>
             </select><br />
-            <label><input type="checkbox" name="new_filter_all_categories" form="<?=$form_id?>" <?=$filter['categories'] === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
+            <label><input type="checkbox" name="new_filter_all_categories" form="<?=$form_id?>" <?=$filter_categories === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
           </td><td>
             <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $form_id)); ?>
 
@@ -3465,7 +3477,7 @@ class LL_mailer
             }
             self::db_add_filter(array(
                 'label' => $filter_label,
-                'categories' => $filter_all_categories ? self::all_posts : self::db_implode_filter_categories($filter_categories),
+                'categories' => $filter_all_categories ? self::all_posts : self::implode_filter_categories($filter_categories),
                 'preselected' => !!$_POST['filter_preselected']
               ));
 
@@ -3486,7 +3498,7 @@ class LL_mailer
 
             self::db_update_filter(array(
                 'label' => $new_filter_label,
-                'categories' => $new_filter_all_categories ? self::all_posts : self::db_implode_filter_categories($new_filter_categories),
+                'categories' => $new_filter_all_categories ? self::all_posts : self::implode_filter_categories($new_filter_categories),
                 'preselected' => !!$_POST['new_filter_preselected']
               ), $filter_id);
 
@@ -3570,7 +3582,7 @@ class LL_mailer
               $cats_str = '';
             }
             else {
-              $cats = self::db_explode_filter_categories($filter['categories']);
+              $cats = self::explode_filter_categories($filter['categories']);
               $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
             }
 ?>
