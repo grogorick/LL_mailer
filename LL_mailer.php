@@ -3588,7 +3588,7 @@ class LL_mailer
             }
             else {
               $cats = self::explode_filter_categories($filter['categories']);
-              $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
+              $cats_str = implode(' & ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
             }
 ?>
             <input type="checkbox" name="<?=self::_?>_filters[<?=$filter['id']?>]" id="<?=self::_ . '_filters[' . $filter['id']?>]" <?=$filter['preselected'] ? 'checked' : ''?> />
