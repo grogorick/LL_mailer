@@ -3593,7 +3593,7 @@ class LL_mailer
 ?>
             <input type="checkbox" name="<?=self::_?>_filters[<?=$filter['id']?>]" id="<?=self::_ . '_filters[' . $filter['id']?>]" <?=$filter['preselected'] ? 'checked' : ''?> />
             <label for="<?=self::_ . '_filters[' . $filter['id']?>]" <?=($show_categories === 'tooltip' && $cats_str) ? 'title="' . $cats_str . '"' : ''?>>
-              <?=$filter['label'] . (($show_categories === 'brackets' && $cats_str) ? ' (' . $cats_str . ')' : '')?>
+              <?=$filter['label'] . (($show_categories === 'brackets' && $cats_str) ? ' <span class="' . self::_ . '_filter_post_categories">(' . $cats_str . ')</span>' : '')?>
             </label>
 <?php
           }
