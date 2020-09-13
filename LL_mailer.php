@@ -1354,7 +1354,7 @@ class LL_mailer
           if (!empty($errors)) {
             self::message(sprintf("Fehler für Post-Nachricht %s:", '<b>' . $post_link . '</b>') . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
           }
-          wp_redirect(wp_get_referer());
+          wp_redirect($request['redirect_to'] ?? wp_get_referer());
           exit;
 
         default:
@@ -2781,6 +2781,7 @@ class LL_mailer
               <form method="post" action="admin-post.php">
                 <input type="hidden" name="action" value="<?=self::_?>_message_action" />
                 <?php wp_nonce_field(self::_ . '_send_abo_mail'); ?>
+                <input type="hidden" name="original_referrer" value="<?=wp_get_referer()?>" />
                 <input type="hidden" name="message_slug" value="<?=$msg?>" />
                 <input type="hidden" name="abo_mail_to" value="<?=$_GET['to']?>" />
                 <input type="hidden" name="abo_mail_post" value="<?=$post_id?>" />
@@ -2850,7 +2851,8 @@ class LL_mailer
           self::send_abo_mails(array(
             'msg' => $message_slug,
             'post' => $_POST['abo_mail_post'],
-            'to' => $_POST['abo_mail_to']));
+            'to' => $_POST['abo_mail_to'],
+            'redirect_to' => $_POST['original_referrer']));
           exit;
         }
       }
