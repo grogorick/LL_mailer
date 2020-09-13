@@ -343,7 +343,12 @@ class LL_mailer
           }
         }
         else if (isset($value[1])) {
-          $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
+          if (is_array($value[1])) {
+            $ret[] = self::escape_key($key) . ' ' . $value[0] . ' (' . implode(', ', self::escape_values($value[1])) . ')';
+          }
+          else {
+            $ret[] = self::escape_key($key) . ' ' . $value[0] . ' ' . self::escape_value($value[1]);
+          }
         }
         else {
           $ret[] = self::escape_key($key) . ' ' . $value[0];
@@ -480,7 +485,7 @@ class LL_mailer
   static function db_update_filter($filter, $id) { return self::_db_update(self::table_filters, $filter, array('id' => $id)); }
   static function db_delete_filter($id) { return self::_db_delete(self::table_filters, array('id' => $id)); }
   static function db_get_filter_by_id($id) { return self::_db_select_row(self::table_filters, '*', array('id' => $id)); }
-  static function db_get_filters($what) { return self::_db_select(self::table_filters, $what); }
+  static function db_get_filters($what, $ids = array()) { return self::_db_select(self::table_filters, $what, empty($ids) ? array() : array('id' => array('IN', $ids))); }
   static function db_get_filters_by_categories($what, $categories)
   {
     return self::_db_select(self::table_filters, $what,
@@ -1442,11 +1447,8 @@ class LL_mailer
         $show_messge(__('Bitte gib deine Email Adresse an.', 'LL_mailer'));
       }
 
-      if (BETA())
-      {
       if (!isset($_POST[self::_ . '_filters']) || empty($_POST[self::_ . '_filters'])) {
         $show_messge(__('Bitte wähle mindestens einen Filter aus.', 'LL_mailer'));
-      }
       }
 
       if (get_option(self::option_use_robot_check)) {
@@ -1492,9 +1494,14 @@ class LL_mailer
       self::db_add_subscriber($new_subscriber);
       $new_subscriber_id = self::db_get_new_id();
 
-      if (BETA())
-      {
-      self::db_add_subscriptions($new_subscriber_id, array_keys($_POST[self::_ . '_filters']));
+      $filter_ids = array_keys($_POST[self::_ . '_filters']);
+      $filters = self::array_assoc_by(self::db_get_filters(array('id', 'categories'), $filter_ids));
+      $all_posts_filter_ids = array_filter($filter_ids, function($filter_id) use ($filters) { return $filters[$filter_id]['categories'] === self::all_posts; });
+      if (empty($all_posts_filter_ids)) {
+        self::db_add_subscriptions($new_subscriber_id, $filter_ids);
+      }
+      else {
+        self::db_add_subscriptions($new_subscriber_id, $all_posts_filter_ids);
       }
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
@@ -3560,8 +3567,6 @@ class LL_mailer
 <?php
       }
     }
-
-    if (BETA()) {
 ?>
         <tr class="<?=self::_?>_row_filters">
           <td>Filter</td>
@@ -3596,8 +3601,6 @@ class LL_mailer
           </td>
         </tr>
 <?php
-    }
-
     $use_robot_check = get_option(self::option_use_robot_check);
     if ($use_robot_check) {
       $robot_question_idx = rand(0, count(self::robot_questions) - 1);
