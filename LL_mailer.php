@@ -35,7 +35,7 @@ class LL_mailer
   const option_sender_mail                  = self::_ . '_sender_mail';
   const option_subscriber_attributes        = self::_ . '_subscriber_attributes';
   const option_subscribe_page               = self::_ . '_subscribe_page';
-  const option_show_abo_categories          = self::_ . '_subscribe_form_show_abo_categories';
+  const option_show_filter_categories       = self::_ . '_subscribe_form_show_filter_categories';
   const option_form_submitted_page          = self::_ . '_form_submitted_page';
   const option_confirmation_msg             = self::_ . '_confirmation_msg';
   const option_confirmed_admin_msg          = self::_ . '_confirmed_admin_msg';
@@ -65,7 +65,7 @@ class LL_mailer
 
   const table_templates                     = self::_ . '_templates';
   const table_messages                      = self::_ . '_messages';
-  const table_abos                          = self::_ . '_abos';
+  const table_filters                       = self::_ . '_filters';
   const table_subscribers                   = self::_ . '_subscribers';
   const table_subscriptions                 = self::_ . '_subscriptions';
 
@@ -78,7 +78,7 @@ class LL_mailer
   const admin_page_subscribers              = self::_ . '_subscribers';
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
   const admin_page_subscriber_attributes    = self::_ . '_subscriber_attributes';
-  const admin_page_abos                     = self::_ . '_abos';
+  const admin_page_filters                  = self::_ . '_filters';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
   const attr_fmt_alt_html                   = array('fmt' => '{fmt="&percnt;s"}',
@@ -471,28 +471,28 @@ class LL_mailer
   static function db_get_messages($what) { return self::_db_select(self::table_messages, $what); }
   static function db_get_messages_by_template($template_slug) { return array_map(function($v) { return $v['slug']; }, self::_db_select(self::table_messages, 'slug', array('template_slug' => $template_slug))); }
 
-  // abos
+  // filters
   // - id
   // - label
   // - categories
   // - preselected
-  static function db_add_abo($abo) { return self::_db_insert(self::table_abos, $abo); }
-  static function db_update_abo($abo, $id) { return self::_db_update(self::table_abos, $abo, array('id' => $id)); }
-  static function db_delete_abo($id) { return self::_db_delete(self::table_abos, array('id' => $id)); }
-  static function db_get_abo_by_id($id) { return self::_db_select_row(self::table_abos, '*', array('id' => $id)); }
-  static function db_get_abos($what) { return self::_db_select(self::table_abos, $what); }
-  static function db_get_abos_by_categories($what, $categories)
+  static function db_add_filter($filter) { return self::_db_insert(self::table_filters, $filter); }
+  static function db_update_filter($filter, $id) { return self::_db_update(self::table_filters, $filter, array('id' => $id)); }
+  static function db_delete_filter($id) { return self::_db_delete(self::table_filters, array('id' => $id)); }
+  static function db_get_filter_by_id($id) { return self::_db_select_row(self::table_filters, '*', array('id' => $id)); }
+  static function db_get_filters($what) { return self::_db_select(self::table_filters, $what); }
+  static function db_get_filters_by_categories($what, $categories)
   {
-    return self::_db_select(self::table_abos, $what,
+    return self::_db_select(self::table_filters, $what,
       array_merge(array(
         'OR',
         'categories' => self::all_posts),
       array_map(function($cat) { return array(array(
         'categories' => array('LIKE', '%|' . $cat . '|%'))); }, $categories)));
   }
-  static function db_abo_exists($where) { return intval(self::_db_select_row(self::table_abos, '#COUNT(0)', $where)['COUNT(0)']); }
-  static function db_implode_abo_categories($categories) { return '|' . implode('|', $categories) . '|'; }
-  static function db_explode_abo_categories($categories) { return array_filter(explode('|', $categories)); }
+  static function db_filter_exists($where) { return intval(self::_db_select_row(self::table_filters, '#COUNT(0)', $where)['COUNT(0)']); }
+  static function db_implode_filter_categories($categories) { return '|' . implode('|', $categories) . '|'; }
+  static function db_explode_filter_categories($categories) { return array_filter(explode('|', $categories)); }
 
   // subscribers
   // - id
@@ -550,24 +550,24 @@ class LL_mailer
 
   // subscriptions
   // - subscriber
-  // - abo
-  static function db_add_subscriptions($subscriber_id, $abo_ids)
+  // - filter
+  static function db_add_subscriptions($subscriber_id, $filter_ids)
   {
-    return self::_db_insert_multiple(self::table_subscriptions, array('subscriber', 'abo'),
-      array_map(function($abo) use ($subscriber_id) {
-          return array($subscriber_id, $abo);
+    return self::_db_insert_multiple(self::table_subscriptions, array('subscriber', 'filter'),
+      array_map(function($filter) use ($subscriber_id) {
+          return array($subscriber_id, $filter);
         },
-        $abo_ids));
+        $filter_ids));
   }
   static function db_delete_subscriptions($subscriber_id)
   {
     return self::_db_delete(self::table_subscriptions, array('subscriber' => $subscriber_id));
   }
-  static function db_get_abos_by_subscriber($subscriber_id)
+  static function db_get_filters_by_subscriber($subscriber_id)
   {
     return array_map(
-      function($subscription) { return $subscription['abo']; },
-      self::_db_select(self::table_subscriptions, 'abo', array('subscriber' => $subscriber_id)));
+      function($subscription) { return $subscription['filter']; },
+      self::_db_select(self::table_subscriptions, 'filter', array('subscriber' => $subscriber_id)));
   }
 
 
@@ -577,22 +577,22 @@ class LL_mailer
     if (is_null($post_id)) {
       return $subscribers;
     }
-    $all_abos = self::db_get_abos(array('id', 'categories'));
-    $categories_by_abo = array();
-    foreach ($all_abos as &$abo) {
-      $categories_by_abo[$abo['id']] = ($abo['categories'] === self::all_posts) ? self::all_posts : self::db_explode_abo_categories($abo['categories']);
+    $all_filters = self::db_get_filters(array('id', 'categories'));
+    $categories_by_filter = array();
+    foreach ($all_filters as &$filter) {
+      $categories_by_filter[$filter['id']] = ($filter['categories'] === self::all_posts) ? self::all_posts : self::db_explode_filter_categories($filter['categories']);
     }
     $post_categories = wp_get_post_categories($post_id);
-    return array_filter($subscribers, function(&$subscriber) use ($post_categories, $categories_by_abo) {
-      $user_abo_ids = self::db_get_abos_by_subscriber($subscriber['id']);
-      $user_abo_categories = array();
-      foreach ($user_abo_ids as &$abo_id) {
-        if ($categories_by_abo[$abo_id] == self::all_posts) {
+    return array_filter($subscribers, function(&$subscriber) use ($post_categories, $categories_by_filter) {
+      $user_filter_ids = self::db_get_filters_by_subscriber($subscriber['id']);
+      $user_filter_categories = array();
+      foreach ($user_filter_ids as &$filter_id) {
+        if ($categories_by_filter[$filter_id] == self::all_posts) {
           return true;
         }
-        $user_abo_categories = array_merge($user_abo_categories, $categories_by_abo[$abo_id]);
+        $user_filter_categories = array_merge($user_filter_categories, $categories_by_filter[$filter_id]);
       }
-      return !empty(array_intersect($post_categories, $user_abo_categories));
+      return !empty(array_intersect($post_categories, $user_filter_categories));
     });
   }
 
@@ -652,9 +652,9 @@ class LL_mailer
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
-    $r[] = self::table_abos . ' : ' .
+    $r[] = self::table_filters . ' : ' .
       ($wpdb->query('
-        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_abos) . ' (
+        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_filters) . ' (
           `id` INT NOT NULL AUTO_INCREMENT,
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
@@ -664,25 +664,26 @@ class LL_mailer
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
-    $r[] = self::table_abos . ' : ' .
-      (self::db_add_abo(array(
+    $r[] = self::table_filters . ' : ' .
+      (self::db_add_filter(array(
         'label' => __('Alle Posts', 'LL_mailer'),
-        'categories' => self::all_posts)
+        'categories' => self::all_posts,
+        'preselected' => true)
       ) ? $labels['table_init'] : self::db_get_error());
 
     $r[] = self::table_subscriptions . ' : ' .
       ($wpdb->query('
         CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ' (
           `subscriber` INT NOT NULL,
-          `abo` INT NOT NULL,
+          `filter` INT NOT NULL,
           INDEX (`subscriber`),
-          INDEX (`abo`),
+          INDEX (`filter`),
           CONSTRAINT FOREIGN KEY (`subscriber`)
             REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '(`' . self::subscriber_attribute_id . '`)
             ON UPDATE CASCADE
             ON DELETE CASCADE,
-          CONSTRAINT FOREIGN KEY (`abo`)
-            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_abos) . '(`id`)
+          CONSTRAINT FOREIGN KEY (`filter`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_filters) . '(`id`)
             ON UPDATE CASCADE
             ON DELETE CASCADE
         )
@@ -730,9 +731,9 @@ class LL_mailer
           ADD UNIQUE (`' . self::subscriber_attribute_mail . '`);'
         ) ? $labels['table_updated'] : self::db_get_error());
 
-    $r[] = self::table_abos . ' : ' .
+    $r[] = self::table_filters . ' : ' .
       ($wpdb->query('
-        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_abos) . ' (
+        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_filters) . ' (
           `id` INT NOT NULL AUTO_INCREMENT,
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
@@ -742,26 +743,27 @@ class LL_mailer
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
 
-    $r[] = self::table_abos . ' : ' .
-      (self::db_add_abo(array(
+    $r[] = self::table_filters . ' : ' .
+      (self::db_add_filter(array(
         'label' => __('Alle Posts', 'LL_mailer'),
-        'categories' => self::all_posts)
+        'categories' => self::all_posts,
+        'preselected' => true)
       ) ? $labels['table_init'] : self::db_get_error());
-    $default_abo = self::db_get_new_id();
+    $default_filter = self::db_get_new_id();
 
     $r[] = self::table_subscriptions . ' : ' .
       ($wpdb->query('
         CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ' (
           `subscriber` INT NOT NULL,
-          `abo` INT NOT NULL,
+          `filter` INT NOT NULL,
           INDEX (`subscriber`),
-          INDEX (`abo`),
+          INDEX (`filter`),
           CONSTRAINT FOREIGN KEY (`subscriber`)
             REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '(`' . self::subscriber_attribute_id . '`)
             ON UPDATE CASCADE
             ON DELETE CASCADE,
-          CONSTRAINT FOREIGN KEY (`abo`)
-            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_abos) . '(`id`)
+          CONSTRAINT FOREIGN KEY (`filter`)
+            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_filters) . '(`id`)
             ON UPDATE CASCADE
             ON DELETE CASCADE
         )
@@ -771,9 +773,9 @@ class LL_mailer
     $subscribers = self::db_get_subscribers();
     $r[] = self::table_subscriptions . ' : ' .
       (self::_db_insert_multiple(
-        self::table_subscriptions, array('subscriber', 'abo'),
-        array_map(function($subscriber) use ($default_abo) {
-          return array($subscriber[self::subscriber_attribute_id], $default_abo);
+        self::table_subscriptions, array('subscriber', 'filter'),
+        array_map(function($subscriber) use ($default_filter) {
+          return array($subscriber[self::subscriber_attribute_id], $default_filter);
         }, $subscribers)
       ) ? $labels['table_init'] : self::db_get_error());
 
@@ -785,7 +787,7 @@ class LL_mailer
     global $wpdb;
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . ';');
-    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_abos) . ';');
+    $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_filters) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_messages) . ';');
     $wpdb->query('DROP TABLE IF EXISTS ' . self::escape_keys($wpdb->prefix . self::table_templates) . ';');
 
@@ -795,7 +797,7 @@ class LL_mailer
     delete_option(self::option_sender_mail);
     delete_option(self::option_subscriber_attributes);
     delete_option(self::option_subscribe_page);
-    delete_option(self::option_show_abo_categories);
+    delete_option(self::option_show_filter_categories);
     delete_option(self::option_form_submitted_page);
     delete_option(self::option_confirmation_msg);
     delete_option(self::option_confirmed_admin_msg);
@@ -1426,7 +1428,7 @@ class LL_mailer
 
       if (BETA())
       {
-      if (!isset($_POST[self::_ . '_abos']) || empty($_POST[self::_ . '_abos'])) {
+      if (!isset($_POST[self::_ . '_filters']) || empty($_POST[self::_ . '_filters'])) {
         $show_messge(__('Bitte wähle mindestens einen Filter aus.', 'LL_mailer'));
       }
       }
@@ -1476,7 +1478,7 @@ class LL_mailer
 
       if (BETA())
       {
-      self::db_add_subscriptions($new_subscriber_id, array_keys($_POST[self::_ . '_abos']));
+      self::db_add_subscriptions($new_subscriber_id, array_keys($_POST[self::_ . '_filters']));
       }
 
       $confirmation_msg = get_option(self::option_confirmation_msg);
@@ -1717,8 +1719,8 @@ class LL_mailer
     add_submenu_page(self::admin_page_settings, self::_, __('Nachrichten', 'LL_mailer'), $required_capability,
                      self::admin_page_messages, self::_('admin_page_messages'));
 
-    add_submenu_page(self::admin_page_settings, self::_, __('Abos', 'LL_mailer'), $required_capability,
-                     self::admin_page_abos, self::_('admin_page_abos'));
+    add_submenu_page(self::admin_page_settings, self::_, __('Filter', 'LL_mailer'), $required_capability,
+                     self::admin_page_filters, self::_('admin_page_filters'));
 
     add_submenu_page(self::admin_page_settings, self::_, __('Abonnenten', 'LL_mailer'), $required_capability,
                      self::admin_page_subscribers, self::_('admin_page_subscribers'));
@@ -1955,14 +1957,14 @@ class LL_mailer
           </tr>
           <tr>
             <td <?=self::secondary_settings_label?>>
-              <label for="<?=self::option_show_abo_categories?>" title="<?=__('Post-Kategorien zu den wählbaren Abos anzeigen', 'LL_mailer')?>">
+              <label for="<?=self::option_show_filter_categories?>" title="<?=__('Post-Kategorien zu den wählbaren Filtern anzeigen', 'LL_mailer')?>">
                 <?=__('Post-Kategorien anzeigen', 'LL_mailer')?></label>
             </td>
             <td>
 <?php
-              $show_categories = get_option(self::option_show_abo_categories);
+              $show_categories = get_option(self::option_show_filter_categories);
 ?>
-              <select name="<?=self::option_show_abo_categories?>">
+              <select name="<?=self::option_show_filter_categories?>">
                 <option value="" <?=!$show_categories ? 'selected' : ''?>><?=__('Nicht anzeigen', 'LL_mailer')?></option>
                 <option value="brackets" <?=$show_categories === 'brackets' ? 'selected' : ''?>><?=__('In Klammern', 'LL_mailer')?></option>
                 <option value="tooltip" <?=$show_categories === 'tooltip' ? 'selected' : ''?>><?=__('Als Tooltip', 'LL_mailer')?></option>
@@ -2112,7 +2114,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_sender_name);
     register_setting(self::_ . '_general', self::option_sender_mail);
     register_setting(self::_ . '_general', self::option_subscribe_page);
-    register_setting(self::_ . '_general', self::option_show_abo_categories);
+    register_setting(self::_ . '_general', self::option_show_filter_categories);
     register_setting(self::_ . '_general', self::option_form_submitted_page);
     register_setting(self::_ . '_general', self::option_confirmation_msg);
     register_setting(self::_ . '_general', self::option_confirmed_admin_msg);
@@ -2750,7 +2752,7 @@ class LL_mailer
             </td>
           </tr>
           <tr>
-            <th><?=__('Abos (Post-Kategorien)', 'LL_mailer')?></th>
+            <th><?=__('Filter (Post-Kategorien)', 'LL_mailer')?></th>
             <td>
               <?php
               $post_category_ids = wp_get_post_categories($post_id);
@@ -2761,8 +2763,8 @@ class LL_mailer
                   $post_categories[] = $cat->name;
                 }
               }
-              $abos = self::db_get_abos_by_categories('label', $post_category_ids);
-              echo implode(', ', array_map(function($a) { return $a['label']; }, $abos)) . ' (' . implode(', ', $post_categories) . ')';
+              $filters = self::db_get_filters_by_categories('label', $post_category_ids);
+              echo implode(', ', array_map(function($a) { return $a['label']; }, $filters)) . ' (' . implode(', ', $post_categories) . ')';
               ?>
             </td>
           </tr>
@@ -2898,14 +2900,14 @@ class LL_mailer
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
             <th><?=__('E-Mail Adresse', 'LL_mailer')?></th>
-            <th><?=__('Abos', 'LL_mailer')?></th>
+            <th><?=__('Filter', 'LL_mailer')?></th>
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
-          $tmp_abos = self::db_get_abos(array('id', 'label'));
-          $abos = array();
-          foreach ($tmp_abos as $abo) {
-            $abos[$abo['id']] = $abo['label'];
+          $tmp_filters = self::db_get_filters(array('id', 'label'));
+          $filters = array();
+          foreach ($tmp_filters as $filter) {
+            $filters[$filter['id']] = $filter['label'];
           }
           $subscribers = self::db_get_subscribers();
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
@@ -2929,8 +2931,8 @@ class LL_mailer
             </td>
             <td>
 <?php
-              $subscriptions = self::db_get_abos_by_subscriber($subscriber[self::subscriber_attribute_id]);
-              array_walk($subscriptions, function(&$abo, $key) use ($abos) { $abo = $abos[$abo]; });
+              $subscriptions = self::db_get_filters_by_subscriber($subscriber[self::subscriber_attribute_id]);
+              array_walk($subscriptions, function(&$filter, $key) use ($filters) { $filter = $filters[$filter]; });
               echo implode(', ', $subscriptions);
 ?>
             </td>
@@ -3003,18 +3005,18 @@ class LL_mailer
             </tr>
 <?php
             }
-            $abos = self::db_get_abos(array('id', 'label'));
-            $subscriptions = self::db_get_abos_by_subscriber($subscriber[self::subscriber_attribute_id]);
+            $filters = self::db_get_filters(array('id', 'label'));
+            $subscriptions = self::db_get_filters_by_subscriber($subscriber[self::subscriber_attribute_id]);
 ?>
             <tr>
-              <th scope="row"><?=__('Abos', 'LL_mailer')?></th>
+              <th scope="row"><?=__('Filter', 'LL_mailer')?></th>
               <td>
-                <select name="abos[]" multiple size="5" class="regular-text">
+                <select name="filters[]" multiple size="5" class="regular-text">
 <?php
-                foreach ($abos as &$abo) {
-                  $selected = (in_array($abo['id'], $subscriptions)) ? 'selected' : '';
+                foreach ($filters as &$filter) {
+                  $selected = (in_array($filter['id'], $subscriptions)) ? 'selected' : '';
 ?>
-                  <option value="<?=$abo['id']?>" <?=$selected?>><?=$abo['label']?></option>
+                  <option value="<?=$filter['id']?>" <?=$selected?>><?=$filter['label']?></option>
 <?php
                 }
 ?>
@@ -3155,7 +3157,7 @@ class LL_mailer
           self::db_update_subscriber($subscriber, $subscriber_mail);
 
           self::db_delete_subscriptions($subscriber_id);
-          self::db_add_subscriptions($subscriber_id, $_POST['abos']);
+          self::db_add_subscriptions($subscriber_id, $_POST['filters']);
 
           self::message(sprintf(__('Abonnent <b>%s</b> gespeichert.', 'LL_mailer'), $new_subscriber_mail));
           wp_redirect(self::admin_url() . self::admin_page_subscriber_edit . urlencode($new_subscriber_mail));
@@ -3334,83 +3336,83 @@ class LL_mailer
 
 
 
-  static function admin_page_abos()
+  static function admin_page_filters()
   {
-    $abos = self::db_get_abos('*');
+    $filters = self::db_get_filters('*');
     $categories = get_categories();
 ?>
     <div class="wrap">
-      <h1><?=__('Abos', 'LL_mailer')?></h1>
+      <h1><?=__('Filter', 'LL_mailer')?></h1>
       <p></p>
       <style>
-      .new-abo-row td {
+      .new-filter-row td {
         border-top: 1px solid black;
       }
       </style>
       <table class="widefat fixed striped">
         <tr>
-          <td><?=__('Abo', 'LL_mailer')?></td>
+          <td><?=__('Filter', 'LL_mailer')?></td>
           <td colspan="2"><?=__('Post-Kategorien', 'LL_mailer')?></td>
         </tr>
 <?php
-        foreach ($abos as &$abo) {
-          $form_id = self::_ . '_form_abo_' . $abo['id'];
-          $abo_categories = self::db_explode_abo_categories($abo['categories']);
+        foreach ($filters as &$filter) {
+          $form_id = self::_ . '_form_filter_' . $filter['id'];
+          $filter_categories = self::db_explode_filter_categories($filter['categories']);
 ?>
         <tr>
           <td>
             <form method="post" action="admin-post.php" style="display: inline;" id="<?=$form_id?>">
-              <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
-              <?php wp_nonce_field(self::_ . '_abo_edit'); ?>
-              <input type="hidden" name="abo" value="<?=$abo['id']?>" />
+              <input type="hidden" name="action" value="<?=self::_?>_filters_action" />
+              <?php wp_nonce_field(self::_ . '_filter_edit'); ?>
+              <input type="hidden" name="filter" value="<?=$filter['id']?>" />
               <p>
-                <input type="text" name="new_abo_label" value="<?=$abo['label']?>" class="regular-text" />
+                <input type="text" name="new_filter_label" value="<?=$filter['label']?>" class="regular-text" />
               </p>
               <p>
-                <label><input type="checkbox" name="new_abo_preselected" <?=$abo['preselected'] ? 'checked' : ''?> /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
+                <label><input type="checkbox" name="new_filter_preselected" <?=$filter['preselected'] ? 'checked' : ''?> /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
               </p>
             </form>
           </td><td>
-            <select name="new_abo_categories[]" multiple size="5" class="regular-text" form="<?=$form_id?>">
+            <select name="new_filter_categories[]" multiple size="5" class="regular-text" form="<?=$form_id?>">
 <?php
             foreach ($categories as &$cat) {
-              $selected = ($abo['categories'] !== self::all_posts && in_array($cat->term_id, $abo_categories)) ? 'selected' : '';
+              $selected = ($filter['categories'] !== self::all_posts && in_array($cat->term_id, $filter_categories)) ? 'selected' : '';
  ?>
               <option value="<?=$cat->term_id?>" <?=$selected?>><?=$cat->name?></option>
 <?php
             }
  ?>
             </select><br />
-            <label><input type="checkbox" name="new_abo_all_categories" form="<?=$form_id?>" <?=$abo['categories'] === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
+            <label><input type="checkbox" name="new_filter_all_categories" form="<?=$form_id?>" <?=$filter['categories'] === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
           </td><td>
             <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $form_id)); ?>
 
             <form method="post" action="admin-post.php" style="display: inline;">
-              <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
-              <?php wp_nonce_field(self::_ . '_abo_delete'); ?>
-              <input type="hidden" name="abo" value="<?=$abo['id']?>" />
+              <input type="hidden" name="action" value="<?=self::_?>_filters_action" />
+              <?php wp_nonce_field(self::_ . '_filter_delete'); ?>
+              <input type="hidden" name="filter" value="<?=$filter['id']?>" />
               <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\nDie Zuordnung der Abonnenten geht dabei verloren.\')')); ?>
             </form>
           </td>
         </tr>
 <?php
         }
-        $new_form_id = self::_ . '_form_new_abo';
+        $new_form_id = self::_ . '_form_new_filter';
 ?>
-        <tr class="new-abo-row">
+        <tr class="new-filter-row">
           <td>
             <form method="post" action="admin-post.php" style="display: inline;" id="<?=$new_form_id?>">
-              <input type="hidden" name="action" value="<?=self::_?>_abos_action" />
-              <?php wp_nonce_field(self::_ . '_abo_add'); ?>
+              <input type="hidden" name="action" value="<?=self::_?>_filters_action" />
+              <?php wp_nonce_field(self::_ . '_filter_add'); ?>
               <p>
-                <input type="text" name="abo" placeholder="<?=__('Neues Abo', 'LL_mailer')?>" class="regular-text" /><br />
+                <input type="text" name="filter" placeholder="<?=__('Neuer Filter', 'LL_mailer')?>" class="regular-text" /><br />
               </p>
               <p>
-                <label><input type="checkbox" name="abo_preselected" /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
+                <label><input type="checkbox" name="filter_preselected" /> <?=__('Vorausgewählt bei der Anmeldung', 'LL_mailer')?></label>
               </p>
             </form>
           </td><td>
-            <select name="abo_categories[]" multiple size="5" placeholder="<?=__('Post-Kategorien', 'LL_mailer')?>" class="regular-text" form="<?=$new_form_id?>">
+            <select name="filter_categories[]" multiple size="5" placeholder="<?=__('Post-Kategorien', 'LL_mailer')?>" class="regular-text" form="<?=$new_form_id?>">
 <?php
             foreach ($categories as &$cat) {
  ?>
@@ -3419,7 +3421,7 @@ class LL_mailer
             }
  ?>
             </select><br />
-            <input type="checkbox" name="abo_all_categories" form="<?=$new_form_id?>" />
+            <input type="checkbox" name="filter_all_categories" form="<?=$new_form_id?>" />
           </td><td>
             <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $new_form_id)); ?>
           </td>
@@ -3428,8 +3430,8 @@ class LL_mailer
     </div>
     <script>
       new function() {
-        let cats = document.querySelectorAll('[name="new_abo_categories[]"]');
-        let checks = document.querySelectorAll('[name="new_abo_all_categories"]');
+        let cats = document.querySelectorAll('[name="new_filter_categories[]"]');
+        let checks = document.querySelectorAll('[name="new_filter_all_categories"]');
         for (let i = 0; i < cats.length; ++i)
         {
           let check = checks[i];
@@ -3445,66 +3447,66 @@ class LL_mailer
     self::admin_page_footer();
   }
 
-  static function admin_page_abos_action()
+  static function admin_page_filters_action()
   {
     if (!empty($_POST) && isset($_POST['_wpnonce'])) {
-      $abo_id_str = trim($_POST['abo']);
-      if (strlen($abo_id_str) !== 0) {
-        $abo_id = intval($abo_id_str);
-        if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_abo_add')) {
-          $abo_label = $abo_id_str;
-          $abo_all_categories = !!$_POST['abo_all_categories'];
-          $abo_categories = $_POST['abo_categories'];
-          if (!empty($abo_label) && ($abo_all_categories || !empty($abo_categories))) {
-            if (self::db_abo_exists(array('label' => $abo_label))) {
-              self::message(sprintf(__('Ein Abo <b>%s</b> existiert bereits.', 'LL_mailer'), $abo_label));
-              wp_redirect(self::admin_url() . self::admin_page_abos);
+      $filter_id_str = trim($_POST['filter']);
+      if (strlen($filter_id_str) !== 0) {
+        $filter_id = intval($filter_id_str);
+        if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_filter_add')) {
+          $filter_label = $filter_id_str;
+          $filter_all_categories = !!$_POST['filter_all_categories'];
+          $filter_categories = $_POST['filter_categories'];
+          if (!empty($filter_label) && ($filter_all_categories || !empty($filter_categories))) {
+            if (self::db_filter_exists(array('label' => $filter_label))) {
+              self::message(sprintf(__('Ein Filter <b>%s</b> existiert bereits.', 'LL_mailer'), $filter_label));
+              wp_redirect(self::admin_url() . self::admin_page_filters);
               exit;
             }
-            self::db_add_abo(array(
-                'label' => $abo_label,
-                'categories' => $abo_all_categories ? self::all_posts : self::db_implode_abo_categories($abo_categories),
-                'preselected' => !!$_POST['abo_preselected']
+            self::db_add_filter(array(
+                'label' => $filter_label,
+                'categories' => $filter_all_categories ? self::all_posts : self::db_implode_filter_categories($filter_categories),
+                'preselected' => !!$_POST['filter_preselected']
               ));
 
-            self::message(sprintf(__('Neues Abo <b>%s</b> hinzugefügt.', 'LL_mailer'), $abo_label));
+            self::message(sprintf(__('Neuer Filter <b>%s</b> hinzugefügt.', 'LL_mailer'), $filter_label));
           }
         }
-        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_abo_edit')) {
-          $new_abo_label = trim($_POST['new_abo_label']);
-          $new_abo_all_categories = !!$_POST['new_abo_all_categories'];
-          $new_abo_categories = $_POST['new_abo_categories'];
-          if (!empty($new_abo_label) && ($new_abo_all_categories || !empty($new_abo_categories))) {
-            $old_abo = self::db_get_abo_by_id($abo_id);
-            if ($new_abo_label !== $old_abo['label'] && self::db_abo_exists(array('label' => $new_abo_label))) {
-              self::message(sprintf(__('Ein Abo <b>%s</b> existiert bereits.', 'LL_mailer'), $new_abo_label));
-              wp_redirect(self::admin_url() . self::admin_page_abos);
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_filter_edit')) {
+          $new_filter_label = trim($_POST['new_filter_label']);
+          $new_filter_all_categories = !!$_POST['new_filter_all_categories'];
+          $new_filter_categories = $_POST['new_filter_categories'];
+          if (!empty($new_filter_label) && ($new_filter_all_categories || !empty($new_filter_categories))) {
+            $old_filter = self::db_get_filter_by_id($filter_id);
+            if ($new_filter_label !== $old_filter['label'] && self::db_filter_exists(array('label' => $new_filter_label))) {
+              self::message(sprintf(__('Ein Filter <b>%s</b> existiert bereits.', 'LL_mailer'), $new_filter_label));
+              wp_redirect(self::admin_url() . self::admin_page_filters);
               exit;
             }
 
-            self::db_update_abo(array(
-                'label' => $new_abo_label,
-                'categories' => $new_abo_all_categories ? self::all_posts : self::db_implode_abo_categories($new_abo_categories),
-                'preselected' => !!$_POST['new_abo_preselected']
-              ), $abo_id);
+            self::db_update_filter(array(
+                'label' => $new_filter_label,
+                'categories' => $new_filter_all_categories ? self::all_posts : self::db_implode_filter_categories($new_filter_categories),
+                'preselected' => !!$_POST['new_filter_preselected']
+              ), $filter_id);
 
-            if ($old_abo['label'] !== $new_abo_label) {
-              self::message(sprintf(__('Abo <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $old_abo['label'], $new_abo_label));
+            if ($old_filter['label'] !== $new_filter_label) {
+              self::message(sprintf(__('Filter <b>%s</b> in <b>%s</b> umbenannt.', 'LL_mailer'), $old_filter['label'], $new_filter_label));
             }
             else {
-              self::message(sprintf(__('Abo <b>%s</b> geändert.', 'LL_mailer'), $old_abo['label']));
+              self::message(sprintf(__('Filter <b>%s</b> geändert.', 'LL_mailer'), $old_filter['label']));
             }
           }
         }
-        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_abo_delete')) {
-          $abo = self::db_get_abo_by_id($abo_id);
-          self::db_delete_abo($abo_id);
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_filter_delete')) {
+          $filter = self::db_get_filter_by_id($filter_id);
+          self::db_delete_filter($filter_id);
 
-          self::message(sprintf(__('Abo <b>%s</b> gelöscht.', 'LL_mailer'), $abo['label']));
+          self::message(sprintf(__('Filter <b>%s</b> gelöscht.', 'LL_mailer'), $filter['label']));
         }
       }
     }
-    wp_redirect(self::admin_url() . self::admin_page_abos);
+    wp_redirect(self::admin_url() . self::admin_page_filters);
     exit;
   }
 
@@ -3549,13 +3551,13 @@ class LL_mailer
 
     if (BETA()) {
 ?>
-        <tr class="<?=self::_?>_row_abos">
+        <tr class="<?=self::_?>_row_filters">
           <td>Filter</td>
           <td>
             <input type="hidden" name='_wpnonce' value="<?=wp_create_nonce('wp_rest')?>" />
 <?php
-          $abos = self::db_get_abos('*');
-          $show_categories = get_option(self::option_show_abo_categories);
+          $filters = self::db_get_filters('*');
+          $show_categories = get_option(self::option_show_filter_categories);
           $categories = array();
           if ($show_categories) {
             $tmp_categories = get_categories();
@@ -3563,18 +3565,18 @@ class LL_mailer
               $categories[$cat->term_id] = $cat->name;
             });
           }
-          foreach ($abos as &$abo) {
-            if ($abo['categories'] === self::all_posts) {
+          foreach ($filters as &$filter) {
+            if ($filter['categories'] === self::all_posts) {
               $cats_str = '';
             }
             else {
-              $cats = self::db_explode_abo_categories($abo['categories']);
+              $cats = self::db_explode_filter_categories($filter['categories']);
               $cats_str = implode(', ', array_map(function($cat) use ($categories) { return $categories[$cat]; }, $cats));
             }
 ?>
-            <input type="checkbox" name="<?=self::_?>_abos[<?=$abo['id']?>]" id="<?=self::_ . '_abos[' . $abo['id']?>]" <?=$abo['preselected'] ? 'checked' : ''?> />
-            <label for="<?=self::_ . '_abos[' . $abo['id']?>]" <?=($show_categories === 'tooltip' && $cats_str) ? 'title="' . $cats_str . '"' : ''?>>
-              <?=$abo['label'] . (($show_categories === 'brackets' && $cats_str) ? ' (' . $cats_str . ')' : '')?>
+            <input type="checkbox" name="<?=self::_?>_filters[<?=$filter['id']?>]" id="<?=self::_ . '_filters[' . $filter['id']?>]" <?=$filter['preselected'] ? 'checked' : ''?> />
+            <label for="<?=self::_ . '_filters[' . $filter['id']?>]" <?=($show_categories === 'tooltip' && $cats_str) ? 'title="' . $cats_str . '"' : ''?>>
+              <?=$filter['label'] . (($show_categories === 'brackets' && $cats_str) ? ' (' . $cats_str . ')' : '')?>
             </label>
 <?php
           }
@@ -3658,7 +3660,7 @@ class LL_mailer
     add_action('admin_post_' . self::_ . '_message_action', self::_('admin_page_message_action'));
     add_action('admin_post_' . self::_ . '_subscriber_action', self::_('admin_page_subscriber_action'));
     add_action('admin_post_' . self::_ . '_subscriber_attributes_action', self::_('admin_page_subscriber_attributes_action'));
-    add_action('admin_post_' . self::_ . '_abos_action', self::_('admin_page_abos_action'));
+    add_action('admin_post_' . self::_ . '_filters_action', self::_('admin_page_filters_action'));
 
     add_filter('post_row_actions', self::_('post_row_actions'), 10, 2);
 
