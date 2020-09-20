@@ -1,0 +1,6 @@
+{
+	"name": "grogorick/ll_mailer",
+	"require": {
+		"pelago/emogrifier": "^4.0"
+	}
+}

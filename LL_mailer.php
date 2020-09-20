@@ -23,6 +23,8 @@ if (!function_exists('BETA')) {
   }
 }
 
+require_once 'vendor/autoload.php';
+
 
 
 class LL_mailer
@@ -188,10 +190,10 @@ class LL_mailer
 
 
 
-  static function message($msg, $sticky_id = false)
+  static function message($msg, $sticky_id = false, $convert_newlines = true)
   {
     $msgs = self::get_option_array(self::option_msg);
-    $msgs[] = array($msg, $sticky_id);
+    $msgs[] = array($msg, $sticky_id, $convert_newlines);
     update_option(self::option_msg, $msgs);
   }
 
@@ -219,7 +221,7 @@ class LL_mailer
     $msgs = self::get_option_array(self::option_msg);
     if (!empty($msgs)) {
       foreach ($msgs as $key => &$msg) {
-        self::inline_message($msg[0], $msg[1]);
+        self::inline_message($msg[0], $msg[1], $msg[2]);
         if (!$msg[1]) {
           unset($msgs[$key]);
         }
@@ -249,7 +251,7 @@ class LL_mailer
     }
   }
 
-  static function inline_message($msg, $sticky_id = false)
+  static function inline_message($msg, $sticky_id = false, $convert_newlines = false)
   {
     $hide_class = ($sticky_id) ? ' ' . self::_ . '_sticky_message' : '';
     echo '<div class="notice notice-info' . $hide_class . '">';
@@ -258,7 +260,7 @@ class LL_mailer
         '(<a class="' . self::_ . '_sticky_message_hide_link" href="' . self::json_url() . 'get?hide_message=' . urlencode($sticky_id) . '">' . __('Ausblenden', 'LL_mailer') . '</a>)' .
         '</p>';
     }
-    echo '<p>' . nl2br($msg) . '</p></div>';
+    echo '<p>' . ($convert_newlines ? nl2br($msg) : $msg) . '</p></div>';
   }
 
 
@@ -1121,14 +1123,15 @@ class LL_mailer
 
   static function prepare_mail_inline_css(&$body_html)
   {
-    require_once self::pluginPath() . 'cssin/src/CSSIN.php';
-    $cssin = new FM\CSSIN();
-    $body_html = $cssin->inlineCSS(site_url(), $body_html);
+    $cssInliner = Pelago\Emogrifier\CssInliner::fromHtml($body_html)
+      ->inlineCss();
+    $body_html = Pelago\Emogrifier\HtmlProcessor\HtmlPruner::fromDomDocument($cssInliner->getDomDocument())
+      ->removeElementsWithDisplayNone()
+      ->removeRedundantClassesAfterCssInlined($cssInliner)
+      ->renderBodyContent();
 
-    $body_html = preg_replace('/class="[^"]*"|class=\'[^\']*\'/i', '', $body_html);
     $body_html = preg_replace('/\\n|\\r|\\r\\n/', '', $body_html);
-    $body_html = preg_replace('/>\\s+</i', '><', $body_html);
-    $body_html = preg_replace('/\\s\\s+/i', ' ', $body_html);
+    $body_html = preg_replace('/>\\s\\s+</i', '> <', $body_html);
   }
 
   static function prepare_mail($msg, $to /* email | null */, $is_abo_mail /* true | false */, $post_id /* ID | null */, $escape_html /* true | false */, $inline_css /* true | false */, $find_and_replace_attachments /* true | 'preview' | false */)
@@ -1136,7 +1139,9 @@ class LL_mailer
     if (isset($msg)) {
       if (is_string($msg)) {
         $msg = self::db_get_message_by_slug($msg);
-        if (is_null($msg)) return __('Nachricht nicht gefunden.', 'LL_mailer');
+        if (is_null($msg)) {
+          return __('Nachricht nicht gefunden.', 'LL_mailer');
+        }
       }
       $subject = $msg['subject'];
       $body_html = $msg['body_html'];
@@ -1146,7 +1151,9 @@ class LL_mailer
         self::prepare_mail_for_template($msg['template_slug'], $body_html, $body_text);
       }
     }
-    else return __('Keine Nachricht angegeben.', 'LL_mailer');
+    else {
+      return __('Keine Nachricht angegeben.', 'LL_mailer');
+    }
 
     $replace_dict = array(
       'inline' => array(

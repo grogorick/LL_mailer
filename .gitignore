@@ -1,0 +1,9 @@
+composer.lock
+composer.phar
+vendor/
+
+.idea/
+
+*.png
+
+LL_mailer_*.zip
