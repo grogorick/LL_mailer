@@ -992,12 +992,19 @@ class LL_mailer
   static function prepare_mail_for_template($template_slug, &$body_html, &$body_text)
   {
     $template = self::db_get_template_by_slug($template_slug);
-    $body_html = str_replace(self::token_CONTENT['pattern'], $body_html, $template['body_html']);
-    $body_text = str_replace(self::token_CONTENT['pattern'], $body_text, $template['body_text']);
+    if (!is_null($body_html)) {
+      $body_html = str_replace(self::token_CONTENT['pattern'], $body_html, $template['body_html']);
+    }
+    if (!is_null($body_text)) {
+      $body_text = str_replace(self::token_CONTENT['pattern'], $body_text, $template['body_text']);
+    }
   }
 
   static function replace_token_IN_ABO_MAIL($text, $is_abo_mail, $is_html, &$replace_dict)
   {
+    if (is_null($text)) {
+      return $text;
+    }
     preg_match_all(self::token_IN_ABO_MAIL['pattern'], $text, $matches, PREG_SET_ORDER);
     if (!empty($matches)) {
       $FULL = 0;
@@ -1033,6 +1040,9 @@ class LL_mailer
 
   static function replace_token_ESCAPE_HTML($text, $is_html, &$replace_dict)
   {
+    if (is_null($text)) {
+      return $text;
+    }
     preg_match_all(self::token_ESCAPE_HTML['pattern'], $text, $matches, PREG_SET_ORDER);
     if (!empty($matches)) {
       $FULL = 0;
@@ -1055,14 +1065,16 @@ class LL_mailer
     return $text;
   }
 
-  static function prepare_mail_to_escape_html(&$body_html, &$body_text, &$replace_dict)
+  static function prepare_mail_to_escape_html(&$body_html, &$replace_dict)
   {
     $body_html = self::replace_token_ESCAPE_HTML($body_html, true, $replace_dict);
-    $body_text = self::replace_token_ESCAPE_HTML($body_text, false, $replace_dict);
   }
 
   static function prepare_mail_attachments(&$body_html, $is_preview, &$replace_dict)
   {
+    if (is_null($body_html)) {
+      return array();
+    }
     $attachments = array();
     preg_match_all(self::token_ATTACH['pattern'], $body_html, $matches, PREG_SET_ORDER);
     if (!empty($matches)) {
@@ -1097,21 +1109,26 @@ class LL_mailer
   static function prepare_mail_for_receiver($to, &$subject, &$body_html, &$body_text, &$replace_dict)
   {
     $confirm_url = self::json_url() . 'confirm-subscription?subscriber=' . urlencode(base64_encode($to[self::subscriber_attribute_mail]));
-    $body_html = str_replace(self::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
-    $body_text = str_replace(self::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
-    $replace_dict['inline']['html'][self::token_CONFIRMATION_URL['pattern']] = $confirm_url;
-    $replace_dict['inline']['text'][self::token_CONFIRMATION_URL['pattern']] = $confirm_url;
-
     $unsubscribe_url = self::json_url() . 'unsubscribe?subscriber=' . urlencode(base64_encode($to[self::subscriber_attribute_mail]));
-    $body_html = str_replace(self::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_html);
-    $body_text = str_replace(self::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_text);
-    $replace_dict['inline']['html'][self::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
-    $replace_dict['inline']['text'][self::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
-
     $attributes = array_keys(self::get_option_array(self::option_subscriber_attributes));
+
     $subject = self::replace_token_SUBSCRIBER_ATTRIBUTE($subject, false, $to, $attributes, $replace_dict);
-    $body_html = self::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes, $replace_dict);
-    $body_text = self::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes, $replace_dict);
+
+    if (!is_null($body_html)) {
+      $body_html = self::replace_token_SUBSCRIBER_ATTRIBUTE($body_html, true, $to, $attributes, $replace_dict);
+      $body_html = str_replace(self::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_html);
+      $replace_dict['inline']['html'][self::token_CONFIRMATION_URL['pattern']] = $confirm_url;
+      $body_html = str_replace(self::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_html);
+      $replace_dict['inline']['html'][self::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
+    }
+
+    if (!is_null($body_text)) {
+      $body_text = self::replace_token_SUBSCRIBER_ATTRIBUTE($body_text, false, $to, $attributes, $replace_dict);
+      $body_text = str_replace(self::token_CONFIRMATION_URL['pattern'], $confirm_url, $body_text);
+      $replace_dict['inline']['text'][self::token_CONFIRMATION_URL['pattern']] = $confirm_url;
+      $body_text = str_replace(self::token_UNSUBSCRIBE_URL['pattern'], $unsubscribe_url, $body_text);
+      $replace_dict['inline']['text'][self::token_UNSUBSCRIBE_URL['pattern']] = $unsubscribe_url;
+    }
   }
 
   static function prepare_mail_for_post($post_id, &$subject, &$body_html, &$body_text, &$replace_dict)
@@ -1132,6 +1149,9 @@ class LL_mailer
 
   static function prepare_mail_inline_css(&$body_html)
   {
+    if (is_null($body_html)) {
+      return;
+    }
     $cssInliner = Pelago\Emogrifier\CssInliner::fromHtml($body_html)
       ->inlineCss();
     $body_html = Pelago\Emogrifier\HtmlProcessor\HtmlPruner::fromDomDocument($cssInliner->getDomDocument())
@@ -1155,6 +1175,13 @@ class LL_mailer
       $subject = $msg['subject'];
       $body_html = $msg['body_html'];
       $body_text = $msg['body_text'];
+
+      if (!strlen(trim($body_html))) {
+        $body_html = null;
+      }
+      if (!strlen(trim($body_text))) {
+        $body_text = null;
+      }
 
       if (!is_null($msg['template_slug'])) {
         self::prepare_mail_for_template($msg['template_slug'], $body_html, $body_text);
@@ -1188,7 +1215,7 @@ class LL_mailer
     }
 
     if ($escape_html) {
-      self::prepare_mail_to_escape_html($body_html, $body_text, $replace_dict);
+      self::prepare_mail_to_escape_html($body_html, $replace_dict);
     }
 
     $attachments = array();
@@ -1254,13 +1281,20 @@ class LL_mailer
       $phpmailer->setFrom($from[self::subscriber_attribute_mail], $from[self::subscriber_attribute_name]);
       $phpmailer->addAddress($to[self::subscriber_attribute_mail], $to[self::subscriber_attribute_name]);
 
-      $phpmailer->isHTML(true);
       $phpmailer->Subject = $subject;
-      $phpmailer->Body = $body_html;
-      $phpmailer->AltBody = $body_text;
 
-      foreach ($attachments as $cid => $url) {
-        $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
+      if (is_null($body_html)) {
+        $phpmailer->isHTML(false);
+        $phpmailer->Body = $body_text;
+      }
+      else {
+        $phpmailer->isHTML(true);
+        $phpmailer->Body = $body_html;
+        $phpmailer->AltBody = $body_text;
+
+        foreach ($attachments as $cid => $url) {
+          $phpmailer->addStringEmbeddedImage(file_get_contents($url), $cid, PHPMailer::mb_pathinfo($url, PATHINFO_BASENAME));
+        }
       }
 
       $success = $phpmailer->send();
@@ -1312,7 +1346,7 @@ class LL_mailer
           $tmp_body_text = $body_text;
           $tmp_replace_dict = $replace_dict;
           self::prepare_mail_for_receiver($subscriber, $tmp_subject, $tmp_body_html, $tmp_body_text, $tmp_replace_dict);
-          self::prepare_mail_to_escape_html($tmp_body_html, $tmp_body_text, $tmp_replace_dict);
+          self::prepare_mail_to_escape_html($tmp_body_html, $tmp_replace_dict);
           $tmp_attachments = self::prepare_mail_attachments($tmp_body_html, false, $tmp_replace_dict);
           self::prepare_mail_inline_css($tmp_body_html);
 
