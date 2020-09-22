@@ -1384,7 +1384,7 @@ class LL_mailer
           if (!empty($errors)) {
             self::message(sprintf("Fehler für Post-Nachricht %s:", '<b>' . $post_link . '</b>') . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
           }
-          wp_redirect($request['redirect_to'] ?? wp_get_referer());
+          wp_redirect($request['redirect_to'] ?? get_admin_url());
           exit;
 
         default:
@@ -2551,8 +2551,13 @@ class LL_mailer
             foreach ($test_posts->posts as $post) {
               $cats = wp_get_post_categories($post->ID);
               array_walk($cats, function(&$cat, $key) { $cat = get_category($cat)->name; });
+              $status = '';
+              if ($post->post_status !== 'publish') {
+                $status_obj = get_post_status_object($post->post_status);
+                $status = '[' . $status_obj->label . '] ';
+              }
 ?>
-                <option value="<?=$post->ID?>"><?=$post->post_title?> (<?=implode(', ', $cats)?>)</option>
+                <option value="<?=$post->ID?>"><?=$status . $post->post_title?> (<?=implode(', ', $cats)?>)</option>
 <?php
             }
 ?>
@@ -2813,7 +2818,7 @@ class LL_mailer
               <form method="post" action="admin-post.php">
                 <input type="hidden" name="action" value="<?=self::_?>_message_action" />
                 <?php wp_nonce_field(self::_ . '_send_abo_mail'); ?>
-                <input type="hidden" name="original_referrer" value="<?=wp_get_referer()?>" />
+                <input type="hidden" name="original_referrer" value="<?=$_SERVER['HTTP_REFERER']?>" />
                 <input type="hidden" name="message_slug" value="<?=$msg?>" />
                 <input type="hidden" name="abo_mail_to" value="<?=$_GET['to']?>" />
                 <input type="hidden" name="abo_mail_post" value="<?=$post_id?>" />
