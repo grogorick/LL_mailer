@@ -152,7 +152,7 @@ class LL_mailer
   const html_prefix = '<html><head></head><body>';
   const html_suffix = '</body></html>';
 
-  static $error = array('replace_token' => 0);
+  static $error = array('replace_token' => array());
 
 
 
@@ -894,7 +894,7 @@ class LL_mailer
               break;
           }
 
-          list($replace_value, $error) = $get_value_by_attr($attr, $match[$FULL]);
+          list($replace_value, $error) = $get_value_by_attr($attr, $alt, $match[$FULL]);
 
           if (!empty($replace_value)) {
             $replacement = $replace_value;
@@ -909,8 +909,6 @@ class LL_mailer
                 $replacement = nl2br($replacement);
               }
             }
-          } else if (!is_null($alt)) {
-            $replacement = $alt;
           } else {
             $replacement = $error;
           }
@@ -939,12 +937,15 @@ class LL_mailer
   static function replace_token_SUBSCRIBER_ATTRIBUTE($text, $is_html, &$to, &$attributes, &$replace_dict)
   {
     return self::replace_token_using_fmt_and_alt($text, $is_html, self::token_SUBSCRIBER_ATTRIBUTE, $post,
-      function(&$attr, &$found_token) use($to, $attributes) {
+      function(&$attr, &$alt, &$found_token) use($to, $attributes) {
         if (in_array($attr, $attributes) && isset($to[$attr]) && !empty($to[$attr])) {
           return array($to[$attr], '');
         }
+        else if (!is_null($alt)) {
+          return array($alt, '');
+        }
         else {
-          self::$error['replace_token']++;
+          self::$error['replace_token'][] = '<code>' . $found_token . '</code>';
           return array(null, '(' . sprintf(__('Fehler in %s: Abonnenten Attribut "%s" existiert nicht oder ist für diesen Abonnenten nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr) . ')');
         }
       }, $replace_dict);
@@ -953,14 +954,18 @@ class LL_mailer
   static function replace_token_POST_ATTRIBUTE($text, $is_html, &$post, &$post_a, &$replace_dict)
   {
     return self::replace_token_using_fmt_and_alt($text, $is_html, self::token_POST_ATTRIBUTE, $post,
-      function(&$attr, &$found_token) use($post, $post_a) {
-        if (array_key_exists($attr, $post_a) && !empty($post_a[$attr]))
+      function(&$attr, &$alt, &$found_token) use($post, $post_a) {
+        if (array_key_exists($attr, $post_a) && !empty($post_a[$attr])) {
           return array($post_a[$attr], '');
+        }
+        else if (!is_null($alt)) {
+          return array($alt, '');
+        }
         else {
           switch ($attr) {
             case 'url': return array(home_url(user_trailingslashit($post->post_name)), '');
             default:
-              self::$error['replace_token']++;
+              self::$error['replace_token'][] = '<code>' . $found_token . '</code>';
               return array(null, '(' . sprintf(__('Fehler in %s: WP_Post Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
           }
         }
@@ -970,11 +975,15 @@ class LL_mailer
   static function replace_token_POST_META($text, $is_html, &$post, &$replace_dict)
   {
     return self::replace_token_using_fmt_and_alt($text, $is_html, self::token_POST_META, $post,
-      function(&$attr, &$found_token) use($post) {
-        if (metadata_exists('post', $post->ID, $attr))
+      function(&$attr, &$alt, &$found_token) use($post) {
+        if (metadata_exists('post', $post->ID, $attr)) {
           return array(get_post_meta($post->ID, $attr, true), '');
+        }
+        else if (!is_null($alt)) {
+          return array($alt, '');
+        }
         else {
-          self::$error['replace_token']++;
+          self::$error['replace_token'][] = '<code>' . $found_token . '</code>';
           return array(null, '(' . sprintf(__('Fehler in %s: Post-Meta Attribut "%s" existiert nicht oder ist im Post "%s" nicht gespeichert (nutze alt="")', 'LL_mailer'), '<code>' . $found_token . '</code>', $attr, $post->post_title) . ')');
         }
       }, $replace_dict);
@@ -1282,7 +1291,10 @@ class LL_mailer
       $out_errors[] = $mail_or_error;
     }
     if (self::$error['replace_token']) {
-      $out_errors[] = sprintf(__('Die Nachricht enthält %d Platzhalter-Fehler.', 'LL_mailer'), self::$error['replace_token']) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für alle Abonnenten <b>abgebrochen</b>.', 'LL_mailer');
+      $out_errors[] = sprintf(__('Die Nachricht enthält mindestens %d Platzhalter-Fehler:', 'LL_mailer'), count(self::$error['replace_token'])) .
+        ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' .
+        '- ' . implode('<br />- ', self::$error['replace_token']) . '<br />' .
+        __('Versandt für alle Abonnenten <b>abgebrochen</b>.', 'LL_mailer');
     }
     if (empty($out_errors)) {
       list($to, $subject, $body_html, $body_text, $attachments, $replace_dict, $out_post) = $mail_or_error;
@@ -1305,8 +1317,9 @@ class LL_mailer
           self::prepare_mail_inline_css($tmp_body_html);
 
           if (self::$error['replace_token']) {
-            $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')';
-            self::$error['replace_token'] = 0;
+            $token_errors[] = $subscriber[self::subscriber_attribute_name] . ' (' . $subscriber[self::subscriber_attribute_mail] . ')<br />' .
+              '- ' . implode('<br />- ', self::$error['replace_token']);
+            self::$error['replace_token'] = array();
           }
           else {
             $to = $receiver_if_different_from_subscribers ?? $subscriber;
@@ -1321,7 +1334,10 @@ class LL_mailer
           }
         }
         if (!empty($token_errors)) {
-          $out_errors[] = sprintf(__('Die Nachricht enthält Abonnenten-Platzhalter-Fehler.', 'LL_mailer'), $token_errors[0]) . ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' . __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') . implode("<br />", $token_errors);
+          $out_errors[] = __('Die Nachricht enthält Abonnenten-Platzhalter-Fehler.', 'LL_mailer') .
+            ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' .
+            __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') .
+            implode("<br />", $token_errors);
         }
       }
     }
