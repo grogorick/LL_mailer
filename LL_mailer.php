@@ -3621,7 +3621,7 @@ class LL_mailer
         $input_type = $is_email ? 'email' : 'text';
         $input_required = $is_email ? _('(Pflichtfeld)') : '';
 ?>
-        <tr class="<?=self::_?>_row_attribute">
+        <tr class="<?=self::_?>_row_attribute <?=self::_?>_row_attribute_<?=$attr?>">
           <td><?=$attr_label?></td>
           <td><input type="<?=$input_type?>" name="<?=self::_ . '_attr_' . $attr?>" /></td>
           <td><?=$input_required?></td>
