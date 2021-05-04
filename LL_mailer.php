@@ -3620,10 +3620,11 @@ class LL_mailer
         $is_email = $attr === self::subscriber_attribute_mail;
         $input_type = $is_email ? 'email' : 'text';
         $input_required = $is_email ? _('(Pflichtfeld)') : '';
+        $attr_name = self::_ . '_attr_' . $attr;
 ?>
         <tr class="<?=self::_?>_row_attribute <?=self::_?>_row_attribute_<?=$attr?>">
           <td><?=$attr_label?></td>
-          <td><input type="<?=$input_type?>" name="<?=self::_ . '_attr_' . $attr?>" /></td>
+          <td><input type="<?=$input_type?>" name="<?=$attr_name?>" <?=isset($_GET[$attr_name]) ? 'value="' . $_GET[$attr_name] . '"' : ''?> /></td>
           <td><?=$input_required?></td>
         </tr>
 <?php
