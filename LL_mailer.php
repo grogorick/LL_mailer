@@ -48,6 +48,7 @@ class LL_mailer
   const option_recaptcha_website_key        = self::_ . '_recaptcha_website_key';
   const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
   const option_use_robot_check              = self::_ . '_use_robot_check';
+  const option_subscribers_per_page         = self::_ . '_subscribers_per_page';
 
   const subscriber_attribute_id             = 'id';
   const subscriber_attribute_mail           = 'mail';
@@ -373,7 +374,41 @@ class LL_mailer
     return $w;
   }
 
-  static function _db_build_select($table, $what, $where)
+  static function build_limit($limit)
+  {
+    // self::message(str_replace(' ', '&nbsp;', print_r($limit, true)));
+    if (!$limit) {
+      return null;
+    }
+    $ret = ' LIMIT ';
+    if (is_array($limit) && count($limit) < 3) {
+      $ret .= implode(', ', $limit);
+    }
+    else {
+      $ret .= $limit;
+    }
+    return $ret;
+  }
+
+  static function build_orderby($orderby)
+  {
+    // self::message(str_replace(' ', '&nbsp;', print_r($orderby, true)));
+    if (!$orderby) {
+      return null;
+    }
+    $ret = ' ORDER BY ';
+    if (!is_array($orderby)) {
+      $orderby = array($orderby);
+    }
+    foreach ($orderby as $key => &$value) {
+      if (in_array($value, array('ASC', 'DESC'))) {
+        $value = self::escape_key($key) . ' ' . $value;
+      }
+    }
+    return $ret . implode(', ', $orderby);
+  }
+
+  static function _db_build_select($table, $what, $where, $orderby = null, $limit = null)
   {
     if (is_array($what)) {
       $what = implode(', ', self::escape_keys($what));
@@ -381,7 +416,7 @@ class LL_mailer
     else {
       $what = self::escape_keys($what);
     }
-    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . ';';
+    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_orderby($orderby) . self::build_limit($limit) . ';';
     // self::message(htmlspecialchars($sql));
     return $sql;
   }
@@ -424,10 +459,10 @@ class LL_mailer
     return $wpdb->query($sql);
   }
 
-  static function _db_select($table, $what = '*', $where = array())
+  static function _db_select($table, $what = '*', $where = array(), $orderby = null, $limit = null)
   {
     global $wpdb;
-    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A);
+    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $orderby, $limit), ARRAY_A);
   }
 
   static function _db_select_row($table, $what = '*', $where = array())
@@ -528,9 +563,9 @@ class LL_mailer
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
 
-  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false)
+  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false, $orderby = null, $limit = null)
   {
-    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
+    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array(), $orderby, $limit);
     if ($active_only || $test_receiver_only) {
       $subscribers = array_filter($subscribers, function($subscriber) use ($active_only, $test_receiver_only) {
         $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
@@ -541,6 +576,7 @@ class LL_mailer
     }
     return $subscribers;
   }
+  static function db_get_subscriber_count() { return intval(self::_db_select_row(self::table_subscribers, '#COUNT(0)')['COUNT(0)']); }
 
   static function db_subscribers_add_attribute($attr)
   {
@@ -719,6 +755,14 @@ class LL_mailer
         self::subscriber_attribute_name => 'Dein Name')
       ) ? $labels['option_init'] : self::db_get_error());
 
+    $r[] = self::option_subscribers_per_page . ' : ' .
+      (add_option(self::option_subscribers_per_page, 20
+      ) ? $labels['option_init'] : self::db_get_error());
+
+    $r[] = self::option_version . ' : ' .
+      (add_option(self::option_version, self::count_db_updates()
+      ) ? $labels['option_init'] : self::db_get_error());
+
     self::message(__('Datenbank eingerichtet und Optionen initialisiert.', 'LL_mailer') . '<br /><p>- ' . implode('</p><p>- ', $r) . '</p>');
 
     register_uninstall_hook(__FILE__, self::_('uninstall'));
@@ -728,7 +772,7 @@ class LL_mailer
   {
     if (is_admin()) {
 //      update_option(self::option_version, 0);
-      $db_version = intval(get_option(self::option_version, 0));
+      $db_version = intval(get_option(self::option_version));
       while (method_exists(self::_, 'update_' . ++$db_version)) {
         $r = self::{ 'update_' . $db_version }();
         self::message(__(
@@ -737,6 +781,13 @@ class LL_mailer
         update_option(self::option_version, $db_version);
       }
     }
+  }
+
+  static function count_db_updates()
+  {
+    $db_version = 0;
+    while (method_exists(self::_, 'update_' . ++$db_version));
+    return $db_version - 1;
   }
 
   static function update_1()
@@ -802,6 +853,14 @@ class LL_mailer
         }, $subscribers)
       ) ? $labels['table_init'] : self::db_get_error());
 
+    $r[] = self::option_subscribers_per_page . ' : ' .
+      (add_option(self::option_subscribers_per_page, 20
+      ) ? $labels['option_init'] : self::db_get_error());
+
+    $r[] = self::option_version . ' : ' .
+      (add_option(self::option_version, self::count_db_updates()
+      ) ? $labels['option_init'] : self::db_get_error());
+
     return $r;
   }
 
@@ -831,6 +890,7 @@ class LL_mailer
     delete_option(self::option_recaptcha_website_key);
     delete_option(self::option_recaptcha_secret_key);
     delete_option(self::option_use_robot_check);
+    delete_option(self::option_subscribers_per_page);
   }
 
 
@@ -2105,6 +2165,26 @@ class LL_mailer
               <input type="text" id="<?=self::option_recaptcha_secret_key?>" name="<?=self::option_recaptcha_secret_key?>" value="<?=esc_attr(get_option(self::option_recaptcha_secret_key))?>" placeholder="Code" class="regular-text" />
             </td>
           </tr>
+
+          <tr><td colspan="2"><hr /></td></tr>
+
+          <tr>
+            <th scope="row" colspan="2">
+              <h1><?=__('Admin', 'LL_mailer')?></h1>
+            </th>
+          </tr>
+          <tr>
+            <th scope="row"><?=__('Abonnenten-Liste', 'LL_mailer')?></th>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_subscribers_per_page?>" title="<?=__('Wie viele Abonnenten pro Seite angezeigt werden sollen', 'LL_mailer')?>">
+                <?=__('Abonnenten pro Seite', 'LL_mailer')?></label>
+            </td>
+            <td>
+              <input type="number" id="<?=self::option_subscribers_per_page?>" name="<?=self::option_subscribers_per_page?>" value="<?=esc_attr(get_option(self::option_subscribers_per_page))?>" class="small-text" />
+            </td>
+          </tr>
         </table>
         <?php submit_button(); ?>
       </form>
@@ -2205,6 +2285,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_recaptcha_website_key);
     register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
     register_setting(self::_ . '_general', self::option_use_robot_check);
+    register_setting(self::_ . '_general', self::option_subscribers_per_page);
   }
 
 
@@ -2981,6 +3062,45 @@ class LL_mailer
 
         <h1><?=__('Gespeicherte Abonnenten', 'LL_mailer')?></h1>
         <p></p>
+<?php
+          $filters = self::array_assoc_by(self::db_get_filters(array('id', 'label')));
+
+          $subscribers_per_page = get_option(self::option_subscribers_per_page);
+          $paged = intval($_GET['paged'] ?? 1) - 1;
+          $limit = array($paged * $subscribers_per_page, ($paged + 1) * $subscribers_per_page);
+          $subscriber_count = self::db_get_subscriber_count();
+          $last_page = (int) ($subscriber_count / $subscribers_per_page);
+          $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
+          $subscribers = self::_db_select(self::table_subscribers, "#*, IF(subscribed_at IS NOT NULL, DATE_FORMAT(subscribed_at, \"%Y-%m-%d %H:%i\"), IF(meta LIKE \"%submitted_at%\", FROM_UNIXTIME(SUBSTRING(meta, 17, 10), \"%Y-%m-%d %H:%i\"), NULL)) as subscribed_or_submitted_at", array(), array('subscribed_or_submitted_at' => 'DESC'), $limit);
+          array_walk($subscribers, function(&$subscriber) {
+            $meta = &$subscriber[self::subscriber_attribute_meta];
+            $meta = json_decode($meta, true);
+          });
+          $list_url = self::admin_url() . self::admin_page_subscribers;
+          $paged_nav_btn = function($page, $label, $paged, $enabled) use ($list_url) {
+            return '<a class="' . ($enabled ? $page . '-page' : 'tablenav-pages-navspan disabled') . ' button" href="' . $list_url . ($paged > 1 ? '&paged=' . $paged : '') . '">'
+              . '<span aria-hidden="true">' . $label . '</span></a>';
+          }
+?>
+        <div class="tablenav top">
+          <form method="GET">
+            <input type="hidden" name="page" value="<?=self::admin_page_subscribers?>" />
+            <div class="tablenav-pages">
+              <span class="displaying-num"><?=$subscriber_count?> <?=__('Abonnenten', 'LL_mailer')?></span>
+              <span class="pagination-links">
+                <?=$paged_nav_btn('first', '&laquo;', 1, $paged > 1)?>
+                <?=$paged_nav_btn('prev', '&lsaquo;', $paged, $paged > 0)?>
+                <span class="paging-input">
+                    <input class="current-page" type="text" name="paged" value="<?=$paged + 1?>" size="1" aria-describedby="table-paging">
+                  <span class="tablenav-paging-text"> von <span class="total-pages"><?=$last_page + 1?></span></span>
+                </span>
+                <?=$paged_nav_btn('next', '&rsaquo;', $paged + 2, $paged < $last_page)?>
+                <?=$paged_nav_btn('last', '&raquo;', $last_page + 1, $paged + 1 < $last_page)?>
+              </span>
+            </div>
+            <input type="submit" style="display: none" />
+          </form>
+        </div>
         <table class="widefat fixed striped">
           <tr>
             <th><?=__('Name', 'LL_mailer')?></th>
@@ -2989,15 +3109,8 @@ class LL_mailer
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
-          $filters = self::array_assoc_by(self::db_get_filters(array('id', 'label')));
-          $subscribers = self::db_get_subscribers();
-          $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
-          usort($subscribers, function($a, $b) {
-            return (intval(empty($b['subscribed_at'])) - intval(empty($a['subscribed_at']))) ?: strcmp(strtolower($a[self::subscriber_attribute_mail]), strtolower($b[self::subscriber_attribute_mail]));
-          });
-
           foreach ($subscribers as &$subscriber) {
-            $meta = json_decode($subscriber['meta'], true);
+            $meta = &$subscriber[self::subscriber_attribute_meta];
 ?>
           <tr>
             <td>
@@ -3019,15 +3132,9 @@ class LL_mailer
             </td>
             <td>
 <?php
-              $date = null;
+              $date = $subscriber['subscribed_or_submitted_at'];
               $status = array();
-              if (!empty($subscriber['subscribed_at'])) {
-                $date = $subscriber['subscribed_at'];
-              }
-              else {
-                if (isset($meta[self::meta_submitted_at])) {
-                  $date = date('Y-m-d H:i:s', $meta[self::meta_submitted_at]);
-                }
+              if (empty($subscriber['subscribed_at'])) {
                 $status[] = __('Unbestätigt', 'LL_mailer');
               }
               if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
