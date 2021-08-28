@@ -49,6 +49,7 @@ class LL_mailer
   const option_recaptcha_secret_key         = self::_ . '_recaptcha_secret_key';
   const option_use_robot_check              = self::_ . '_use_robot_check';
   const option_subscribers_per_page         = self::_ . '_subscribers_per_page';
+  const option_log_mails                    = self::_ . '_log_mails';
 
   const subscriber_attribute_id             = 'id';
   const subscriber_attribute_mail           = 'mail';
@@ -71,6 +72,7 @@ class LL_mailer
   const table_filters                       = self::_ . '_filters';
   const table_subscribers                   = self::_ . '_subscribers';
   const table_subscriptions                 = self::_ . '_subscriptions';
+  const table_logs                          = self::_ . '_logs';
 
   const admin_page_settings                 = self::_ . '_settings';
   const admin_page_templates                = self::_ . '_templates';
@@ -82,6 +84,7 @@ class LL_mailer
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
   const admin_page_subscriber_attributes    = self::_ . '_subscriber_attributes';
   const admin_page_filters                  = self::_ . '_filters';
+  const admin_page_logs                     = self::_ . '_logs';
 
   const attr_fmt_alt                        = '\s+"([^"]+)"(\s+(fmt)="([^"]*)")?(\s+(alt)="([^"]*)")?(\s+(escape-html))?(\s+(nl2br))?';
   const attr_fmt_alt_html                   = array('fmt' => '{fmt="&percnt;s"}',
@@ -306,7 +309,7 @@ class LL_mailer
   {
     if ($value[0] === '#')
       return substr($value, 1);
-    return '"' . $value . '"';
+    return '"' . addslashes($value) . '"';
   }
 
   static function escape_values($values)
@@ -326,6 +329,19 @@ class LL_mailer
       $ret[self::escape_key($key)] = is_null($val) ? 'NULL' : (is_array($val) ? self::escape_values($val) : self::escape_value($val));
     }
     return $ret;
+  }
+
+  static function unescape_value($value) {
+    return stripslashes($value);
+  }
+
+  static function unescape_values($array) {
+    array_walk($array, function(&$row) {
+      array_walk($row, function(&$val) {
+        $val = self::unescape_value($val);
+      });
+    });
+    return $array;
   }
 
   static function build_where_recursive($where)
@@ -462,13 +478,13 @@ class LL_mailer
   static function _db_select($table, $what = '*', $where = array(), $orderby = null, $limit = null)
   {
     global $wpdb;
-    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $orderby, $limit), ARRAY_A);
+    return self::unescape_values($wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $orderby, $limit), ARRAY_A));
   }
 
   static function _db_select_row($table, $what = '*', $where = array())
   {
     global $wpdb;
-    return $wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A);
+    return self::unescape_values($wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A));
   }
 
 
@@ -622,6 +638,13 @@ class LL_mailer
       self::_db_select(self::table_subscriptions, 'filter', array('subscriber' => $subscriber_id)));
   }
 
+  // logs
+  // - message
+  // - date
+  static function db_add_log($message) { return self::_db_insert(self::table_logs, array('message' => $message)); }
+  static function db_get_logs($count = 10) { return self::_db_select(self::table_logs, '*', array(), array('date' => 'DESC'), $count); }
+  static function db_clear_logs() { return self::_db_delete(self::table_logs, array()); }
+
 
 
   static function array_assoc_by($arr, $key = 'id') {
@@ -686,7 +709,7 @@ class LL_mailer
       ($wpdb->query('
         CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_messages) . ' (
           `slug` VARCHAR(100) NOT NULL,
-          `subject` TINYTEXT,
+          `subject` VARCHAR(256),
           `template_slug` VARCHAR(100),
           `body_html` TEXT,
           `body_text` TEXT,
@@ -732,19 +755,28 @@ class LL_mailer
 
     $r[] = self::table_subscriptions . ' : ' .
       ($wpdb->query('
-        CREATE TABLE ' . self::escape_keys($wpdb->prefix . self::table_subscriptions) . ' (
+        CREATE TABLE ' . self::escape_key($wpdb->prefix . self::table_subscriptions) . ' (
           `subscriber` INT NOT NULL,
           `filter` INT NOT NULL,
           INDEX (`subscriber`),
           INDEX (`filter`),
           CONSTRAINT FOREIGN KEY (`subscriber`)
-            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_subscribers) . '(`' . self::subscriber_attribute_id . '`)
+            REFERENCES ' . self::escape_key($wpdb->prefix . self::table_subscribers) . '(' . self::escape_key(self::subscriber_attribute_id) . ')
             ON UPDATE CASCADE
             ON DELETE CASCADE,
           CONSTRAINT FOREIGN KEY (`filter`)
-            REFERENCES ' . self::escape_keys($wpdb->prefix . self::table_filters) . '(`id`)
+            REFERENCES ' . self::escape_key($wpdb->prefix . self::table_filters) . '(`id`)
             ON UPDATE CASCADE
             ON DELETE CASCADE
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
+      ) ? $labels['table_created'] : self::db_get_error());
+
+    $r[] = self::table_logs . ' : ' .
+      ($wpdb->query('
+        CREATE TABLE ' . self::escape_key($wpdb->prefix . self::table_logs) . ' (
+          `message` TEXT NOT NULL,
+          `date` DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
         )
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
       ) ? $labels['table_created'] : self::db_get_error());
@@ -757,6 +789,10 @@ class LL_mailer
 
     $r[] = self::option_subscribers_per_page . ' : ' .
       (add_option(self::option_subscribers_per_page, 20
+      ) ? $labels['option_init'] : self::db_get_error());
+
+    $r[] = self::option_log_mails . ' : ' .
+      (add_option(self::option_log_mails, false
       ) ? $labels['option_init'] : self::db_get_error());
 
     $r[] = self::option_version . ' : ' .
@@ -857,8 +893,32 @@ class LL_mailer
       (add_option(self::option_subscribers_per_page, 20
       ) ? $labels['option_init'] : self::db_get_error());
 
-    $r[] = self::option_version . ' : ' .
-      (add_option(self::option_version, self::count_db_updates()
+    return $r;
+  }
+
+  static function update_2()
+  {
+    global $wpdb;
+    $r = array();
+    $labels = self::get_db_labels();
+
+    $r[] = self::table_messages . ' : ' .
+      ($wpdb->query('
+          ALTER TABLE ' . self::escape_key($wpdb->prefix . self::table_messages) . '
+            CHANGE `subject` `subject` VARCHAR(256);'
+      ) ? $labels['table_updated'] : self::db_get_error());
+
+    $r[] = self::table_logs . ' : ' .
+      ($wpdb->query('
+        CREATE TABLE ' . self::escape_key($wpdb->prefix . self::table_logs) . ' (
+          `message` TEXT NOT NULL,
+          `date` DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+        ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
+      ) ? $labels['table_created'] : self::db_get_error());
+
+    $r[] = self::option_log_mails . ' : ' .
+      (add_option(self::option_log_mails, false
       ) ? $labels['option_init'] : self::db_get_error());
 
     return $r;
@@ -891,6 +951,7 @@ class LL_mailer
     delete_option(self::option_recaptcha_secret_key);
     delete_option(self::option_use_robot_check);
     delete_option(self::option_subscribers_per_page);
+    delete_option(self::option_log_mails);
   }
 
 
@@ -1400,6 +1461,7 @@ class LL_mailer
       }
       else {
         $token_errors = array();
+        $success_log = array('subject' => $subject, 'to' => array());
         foreach ($subscribers as $subscriber) {
           $tmp_subject = $subject;
           $tmp_body_html = $body_html;
@@ -1421,6 +1483,10 @@ class LL_mailer
             if (is_null($err)) {
               // SUCCESS
               $out_num_mails_sent++;
+              $success_log['to'][] = $to[self::subscriber_attribute_mail];
+              if ($attachments) {
+                $success_log['attachments'] = count($attachments);
+              }
             }
             else {
               $out_errors[] = $err;
@@ -1432,6 +1498,9 @@ class LL_mailer
             ' (<a href="' . $edit_url . '">' . $txt_goto_message . '</a>)<br />' .
             __('Versandt für folgende Abonnenten <b>abgebrochen</b>:<br />', 'LL_mailer') .
             implode("<br />", $token_errors);
+        }
+        if (get_option(self::option_log_mails)) {
+          self::db_add_log(json_encode(array('mails_sent', $success_log)));
         }
       }
     }
@@ -1474,6 +1543,38 @@ class LL_mailer
         list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
         return array('subject' => $subject, 'html' => $body_html, 'text' => $body_text, 'attachments' => $attachments, 'replace_dict' => $replace_dict, 'error' => null);
       }
+    }
+    return null;
+  }
+
+  static function send_one_time_mails($request)
+  {
+    if (isset($request['msg']) && isset($request['to'])) {
+      $lines = preg_split("/\\R/", $request['to'], NULL, PREG_SPLIT_NO_EMPTY);
+      $lines = array_filter($lines, function($line) { return strlen(trim($line)) > 1; });
+
+      if (count($lines) > 1) {
+        foreach ($lines as &$line) {
+          $line = explode($line[0], substr($line, 1));
+          $line = array_map('trim', $line);
+        }
+        $attrs = array_shift($lines);
+
+        $subscribers = array_map(function (&$subscriber) use ($attrs) { return array_combine($attrs, $subscriber); }, $lines);
+
+        list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers, true);
+        $msg_link = '<a href="' . self::admin_url() . self::admin_page_message_edit . urlencode($request['msg']) . '">Nachricht</a>';
+        if ($num_mails_sent > 0) {
+          self::message(sprintf(__('Die %s wurde per E-Mail an %d Abonnent(en) versandt.', 'LL_mailer'), $msg_link, $num_mails_sent));
+          self::hide_message(self::msg_id_new_post_published($post->ID));
+        }
+        if (!empty($errors)) {
+          self::message(sprintf("Fehler für %s:", $msg_link) . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
+        }
+      }
+      wp_redirect($request['redirect_to'] ?? get_admin_url());
+      exit;
+
     }
     return null;
   }
@@ -1868,6 +1969,9 @@ class LL_mailer
     add_submenu_page(self::admin_page_settings, self::_, __('Abonnenten-Attribute', 'LL_mailer'), $required_capability,
                      self::admin_page_subscriber_attributes, self::_('admin_page_subscriber_attributes'));
 
+    add_submenu_page(self::admin_page_settings, self::_, __('Logs', 'LL_mailer'), $required_capability,
+                     self::admin_page_logs, self::_('admin_page_logs'));
+
     add_action('admin_init', self::_('admin_page_settings_general_action'));
   }
 
@@ -2174,15 +2278,21 @@ class LL_mailer
             </th>
           </tr>
           <tr>
-            <th scope="row"><?=__('Abonnenten-Liste', 'LL_mailer')?></th>
-          </tr>
-          <tr>
             <td <?=self::secondary_settings_label?>>
               <label for="<?=self::option_subscribers_per_page?>" title="<?=__('Wie viele Abonnenten pro Seite angezeigt werden sollen', 'LL_mailer')?>">
                 <?=__('Abonnenten pro Seite', 'LL_mailer')?></label>
             </td>
             <td>
-              <input type="number" id="<?=self::option_subscribers_per_page?>" name="<?=self::option_subscribers_per_page?>" value="<?=esc_attr(get_option(self::option_subscribers_per_page))?>" class="small-text" />
+              <input type="number" id="<?=self::option_subscribers_per_page?>" name="<?=self::option_subscribers_per_page?>" value="<?=esc_attr(get_option(self::option_subscribers_per_page))?>" class="small-text" /> Abonnenten pro Seite in der Abonnenten-Liste anzeigen.
+            </td>
+          </tr>
+          <tr>
+            <td <?=self::secondary_settings_label?>>
+              <label for="<?=self::option_log_mails?>" title="<?=__('Logs zu versendeten E-Mails speichern', 'LL_mailer')?>">
+                <?=__('E-Mail Log aktivieren', 'LL_mailer')?></label>
+            </td>
+            <td>
+              <input type="checkbox" id="<?=self::option_log_mails?>" name="<?=self::option_log_mails?>" <?=get_option(self::option_log_mails) ? 'checked' : ''?> />
             </td>
           </tr>
         </table>
@@ -2286,6 +2396,7 @@ class LL_mailer
     register_setting(self::_ . '_general', self::option_recaptcha_secret_key);
     register_setting(self::_ . '_general', self::option_use_robot_check);
     register_setting(self::_ . '_general', self::option_subscribers_per_page);
+    register_setting(self::_ . '_general', self::option_log_mails);
   }
 
 
@@ -2822,6 +2933,23 @@ class LL_mailer
 
         <hr />
 
+        <h1><?=__('Nachricht an Einmal-Empfänger senden', 'LL_mailer')?></h1>
+        <br />
+
+        <form method="post" action="admin-post.php">
+          <input type="hidden" name="action" value="<?=self::_?>_message_action" />
+          <?php wp_nonce_field(self::_ . '_send_one_time_mail'); ?> 
+          <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
+          <textarea name="abo_mail_to" rows="5" style="width: 100%">| mail | name
+| </textarea>
+          <p><?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), '', '', false, array('onclick' => 'return confirm(\'Ist alles gespeichert?\nEs gibt keine weitere Vorschau. Die Nachrichten werden direkt verschickt.\')')); ?></p>
+        </form>
+
+<?php
+?>
+
+        <hr />
+
         <h1><?=__('Löschen', 'LL_mailer')?></h1>
 
 <?php
@@ -3012,6 +3140,14 @@ class LL_mailer
 
           self::message(sprintf(__('Nachricht <b>%s</b> gelöscht.', 'LL_mailer'), $message_slug));
           wp_redirect(self::admin_url() . self::admin_page_messages);
+          exit;
+        }
+
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_send_one_time_mail')) {
+          self::send_one_time_mails(array(
+            'msg' => $message_slug,
+            'to' => $_POST['abo_mail_to'],
+            'redirect_to' => $_SERVER['HTTP_REFERER']));
           exit;
         }
 
@@ -3700,6 +3836,66 @@ class LL_mailer
 
 
 
+  static function admin_page_logs()
+  {
+    $logs = self::db_get_logs();
+?>
+    <div class="wrap">
+      <h1><?=__('Logs', 'LL_mailer')?></h1>
+      <p></p>
+      <style>
+        table.widefat td:first-child {
+          width: 100pt;
+        }
+      </style>
+      <table class="widefat fixed striped">
+<?php
+        foreach ($logs as &$log) {
+          $msg = json_decode($log['message'], true);
+          switch ($msg[0]) {
+            case 'mails_sent':
+              $msg = $msg[1]['subject'] . ' --> ' . implode(', ', $msg[1]['to']);
+              break;
+            default:
+              $msg = $log['message'];
+          }
+?>
+        <tr>
+          <td><?=$log['date']?></td>
+          <td><?=$msg?></td>
+        </tr>
+<?php
+        }
+?>
+      </table>
+
+      <form method="post" action="admin-post.php" style="display: inline;">
+        <input type="hidden" name="action" value="<?=self::_?>_logs_action" />
+        <?php wp_nonce_field(self::_ . '_logs_clear'); ?> 
+        <p>
+          <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\')')); ?> 
+        </p>
+      </form>
+    </div>
+<?php
+    self::admin_page_footer();
+  }
+
+  static function admin_page_logs_action()
+  {
+    if (!empty($_POST) && isset($_POST['_wpnonce'])) {
+      if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_logs_clear')) {
+        self::db_clear_logs();
+
+        self::message(__('Logs gelöscht.', 'LL_mailer'));
+      }
+    }
+    wp_redirect(self::admin_url() . self::admin_page_logs);
+    exit;
+  }
+
+
+
   static function shortcode_SUBSCRIPTION_FORM($atts)
   {
     if (isset($_GET[self::user_msg])) {
@@ -3846,6 +4042,7 @@ class LL_mailer
     add_action('admin_post_' . self::_ . '_subscriber_action', self::_('admin_page_subscriber_action'));
     add_action('admin_post_' . self::_ . '_subscriber_attributes_action', self::_('admin_page_subscriber_attributes_action'));
     add_action('admin_post_' . self::_ . '_filters_action', self::_('admin_page_filters_action'));
+    add_action('admin_post_' . self::_ . '_logs_action', self::_('admin_page_logs_action'));
 
     add_filter('post_row_actions', self::_('post_row_actions'), 10, 2);
 
