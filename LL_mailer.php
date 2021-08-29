@@ -79,6 +79,7 @@ class LL_mailer
   const admin_page_template_edit            = self::_ . '_templates&edit=';
   const admin_page_messages                 = self::_ . '_messages';
   const admin_page_message_edit             = self::_ . '_messages&edit=';
+  const admin_page_message_one_time_mail    = self::_ . '_messages&send_one_time_mail=';
   const admin_page_message_abo_mail_preview = self::_ . '_messages&abo_mail_preview=';
   const admin_page_subscribers              = self::_ . '_subscribers';
   const admin_page_subscriber_edit          = self::_ . '_subscribers&edit=';
@@ -112,12 +113,14 @@ class LL_mailer
                                                     );
   const token_SUBSCRIBER_ATTRIBUTE          = array('pattern' => '/\[SUBSCRIBER' . self::attr_fmt_alt . '\]/',
                                                     'html'    => '[SUBSCRIBER' . self::attr_options_html . ']',
+                                                    'short'   => '[SUBSCRIBER ...]',
                                                     'filter'  => self::_ . '_SUBSCRIBER_attribute',
                                                     'example' => array('[SUBSCRIBER "mail"]',
                                                                        '[SUBSCRIBER "name" fmt="Hallo %s, willkommen" alt="Willkommen"]')
                                                     );
   const token_POST_ATTRIBUTE                = array('pattern' => '/\[POST' . self::attr_fmt_alt . '\]/',
                                                     'html'    => '[POST' . self::attr_options_html . ']',
+                                                    'short'   => '[POST ...]',
                                                     'filter'  => self::_ . '_POST_attribute',
                                                     'example' => array('[POST "post_title"]',
                                                                        '[POST "post_excerpt" alt="" escape-html nl2br]')
@@ -183,6 +186,11 @@ class LL_mailer
     return false;
   }
 
+  static function sp($count, $singular, $plural, $print_count = true)
+  {
+    return ($print_count ? $count . ' ' : '') . (($count == 1) ? $singular : $plural);
+  }
+
   static function is_predefined_subscriber_attribute($attr) { return in_array($attr, self::subscriber_attributes_default); }
 
   static function make_cid($i) { return 'attachment.' . $i . '@' . $_SERVER['SERVER_NAME']; }
@@ -191,6 +199,8 @@ class LL_mailer
   static function msg_id_new_subscriber($subscriber_mail) { return 'new-subscriber-' . base64_encode($subscriber_mail); }
   static function msg_id_lost_subscriber($subscriber_mail) { return 'lost-subscriber-' . base64_encode($subscriber_mail); }
   static function msg_id_new_post_mail_failed($msg_id, $post_id) { return 'new-post-mail-failed-' . $msg_id . '-' . $post_id . '-' . time(); }
+  static function msg_id_abo_mail_failed($msg_id) { return 'abo-mail-failed-' . $msg_id . '-' . time(); }
+  static function msg_id_new_one_time_mail_failed($msg_id) { return 'one-time-mail-failed-' . $msg_id . '-' . time(); }
 
 
 
@@ -309,7 +319,7 @@ class LL_mailer
   {
     if ($value[0] === '#')
       return substr($value, 1);
-    return '"' . addslashes($value) . '"';
+    return '"' . $value . '"';
   }
 
   static function escape_values($values)
@@ -329,19 +339,6 @@ class LL_mailer
       $ret[self::escape_key($key)] = is_null($val) ? 'NULL' : (is_array($val) ? self::escape_values($val) : self::escape_value($val));
     }
     return $ret;
-  }
-
-  static function unescape_value($value) {
-    return stripslashes($value);
-  }
-
-  static function unescape_values($array) {
-    array_walk($array, function(&$row) {
-      array_walk($row, function(&$val) {
-        $val = self::unescape_value($val);
-      });
-    });
-    return $array;
   }
 
   static function build_where_recursive($where)
@@ -390,20 +387,20 @@ class LL_mailer
     return $w;
   }
 
-  static function build_limit($limit)
+  static function build_groupby($groupby)
   {
-    // self::message(str_replace(' ', '&nbsp;', print_r($limit, true)));
-    if (!$limit) {
+    // self::message(str_replace(' ', '&nbsp;', print_r($orderby, true)));
+    if (!$groupby) {
       return null;
     }
-    $ret = ' LIMIT ';
-    if (is_array($limit) && count($limit) < 3) {
-      $ret .= implode(', ', $limit);
+    $ret = ' GROUP BY ';
+    if (!is_array($groupby)) {
+      $groupby = array($groupby);
     }
-    else {
-      $ret .= $limit;
+    foreach ($groupby as &$key) {
+      $key = self::escape_key($key);
     }
-    return $ret;
+    return $ret . implode(', ', $groupby);
   }
 
   static function build_orderby($orderby)
@@ -424,7 +421,23 @@ class LL_mailer
     return $ret . implode(', ', $orderby);
   }
 
-  static function _db_build_select($table, $what, $where, $orderby = null, $limit = null)
+  static function build_limit($limit)
+  {
+    // self::message(str_replace(' ', '&nbsp;', print_r($limit, true)));
+    if (!$limit) {
+      return null;
+    }
+    $ret = ' LIMIT ';
+    if (is_array($limit) && count($limit) < 3) {
+      $ret .= implode(', ', $limit);
+    }
+    else {
+      $ret .= $limit;
+    }
+    return $ret;
+  }
+
+  static function _db_build_select($table, $what, $where, $groupby = null, $orderby = null, $limit = null)
   {
     if (is_array($what)) {
       $what = implode(', ', self::escape_keys($what));
@@ -432,7 +445,7 @@ class LL_mailer
     else {
       $what = self::escape_keys($what);
     }
-    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_orderby($orderby) . self::build_limit($limit) . ';';
+    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_groupby($groupby) . self::build_orderby($orderby) . self::build_limit($limit) . ';';
     // self::message(htmlspecialchars($sql));
     return $sql;
   }
@@ -475,16 +488,16 @@ class LL_mailer
     return $wpdb->query($sql);
   }
 
-  static function _db_select($table, $what = '*', $where = array(), $orderby = null, $limit = null)
+  static function _db_select($table, $what = '*', $where = array(), $groupby = null, $orderby = null, $limit = null)
   {
     global $wpdb;
-    return self::unescape_values($wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $orderby, $limit), ARRAY_A));
+    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $groupby, $orderby, $limit), ARRAY_A);
   }
 
   static function _db_select_row($table, $what = '*', $where = array())
   {
     global $wpdb;
-    return self::unescape_values($wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A));
+    return $wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A);
   }
 
 
@@ -580,9 +593,9 @@ class LL_mailer
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
 
-  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false, $orderby = null, $limit = null)
+  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false)
   {
-    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array(), $orderby, $limit);
+    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
     if ($active_only || $test_receiver_only) {
       $subscribers = array_filter($subscribers, function($subscriber) use ($active_only, $test_receiver_only) {
         $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
@@ -638,12 +651,20 @@ class LL_mailer
       function($subscription) { return $subscription['filter']; },
       self::_db_select(self::table_subscriptions, 'filter', array('subscriber' => $subscriber_id)));
   }
+  static function db_count_subscribers_by_filter()
+  {
+    return array_map(
+      function(&$row) { return $row['count']; },
+      self::array_assoc_by(
+        self::_db_select(self::table_subscriptions, array('filter', '#COUNT(0) AS count'), array(), 'filter'),
+        'filter'));
+  }
 
   // logs
   // - message
   // - date
-  static function db_add_log($message) { return self::_db_insert(self::table_logs, array('message' => $message)); }
-  static function db_get_logs($count = 10) { return self::_db_select(self::table_logs, '*', array(), array('date' => 'DESC'), $count); }
+  static function db_add_log($message) { return self::_db_insert(self::table_logs, array('message' => addslashes($message))); }
+  static function db_get_logs($count = 10) { return self::_db_select(self::table_logs, '*', array(), null, array('date' => 'DESC'), $count); }
   static function db_clear_logs() { return self::_db_delete(self::table_logs, array()); }
 
 
@@ -656,6 +677,13 @@ class LL_mailer
       }
     }
     return $ret;
+  }
+
+  static function filter_subscribers_by_filters(&$subscribers, $filter_ids)
+  {
+    return array_filter($subscribers, function(&$subscriber) use ($filter_ids) {
+      return !empty(array_intersect($filter_ids, self::db_get_filter_ids_by_subscriber($subscriber['id'])));
+    });
   }
 
   static function filter_subscribers_by_post(&$subscribers, $post_id)
@@ -1553,7 +1581,10 @@ class LL_mailer
       $lines = preg_split("/\\R/", $request['to'], NULL, PREG_SPLIT_NO_EMPTY);
       $lines = array_filter($lines, function($line) { return strlen(trim($line)) > 1; });
 
-      if (count($lines) > 1) {
+      if (count($lines) <= 1) {
+        self::message(__('Keine Empfänger angegeben.', 'LL_mailer'));
+      }
+      else {
         foreach ($lines as &$line) {
           $line = explode($line[0], substr($line, 1));
           $line = array_map('trim', $line);
@@ -1562,14 +1593,13 @@ class LL_mailer
 
         $subscribers = array_map(function (&$subscriber) use ($attrs) { return array_combine($attrs, $subscriber); }, $lines);
 
-        list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers, true);
-        $msg_link = '<a href="' . self::admin_url() . self::admin_page_message_edit . urlencode($request['msg']) . '">Nachricht</a>';
+        list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers, false);
         if ($num_mails_sent > 0) {
-          self::message(sprintf(__('Die %s wurde per E-Mail an %d Abonnent(en) versandt.', 'LL_mailer'), $msg_link, $num_mails_sent));
+          self::message(sprintf(__('Die Nachricht wurde per E-Mail an %d Empfänger versandt.', 'LL_mailer'), $num_mails_sent));
           self::hide_message(self::msg_id_new_post_published($post->ID));
         }
         if (!empty($errors)) {
-          self::message(sprintf("Fehler für %s:", $msg_link) . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
+          self::message('Fehler beim Versenden:<br />' . implode('<br />', $errors), self::msg_id_new_one_time_mail_failed($request['msg']));
         }
       }
       wp_redirect($request['redirect_to'] ?? get_admin_url());
@@ -1594,6 +1624,20 @@ class LL_mailer
           }
           if (!empty($errors)) {
             self::message(sprintf("Fehler für Post-Nachricht %s:", '<b>' . $post_link . '</b>') . '<br />' . implode('<br />', $errors), self::msg_id_new_post_mail_failed($request['msg'], $request['post']));
+          }
+          wp_redirect($request['redirect_to'] ?? get_admin_url());
+          exit;
+
+        case 'filters':
+          $subscribers = self::db_get_subscribers(true, true);
+          $subscribers = self::filter_subscribers_by_filters($subscribers, $request['filters']);
+          list($errors, $num_mails_sent, $post) = self::prepare_and_send_mails($request['msg'], $subscribers);
+          if ($num_mails_sent > 0) {
+			      self::message(sprintf(__('Die Nachricht wurde per E-Mail an %d Abonnent(en) versandt.', 'LL_mailer'), $num_mails_sent));
+            self::hide_message(self::msg_id_new_post_published($post->ID));
+          }
+          if (!empty($errors)) {
+            self::message('Fehler beim Versenden:<br />' . implode('<br />', $errors), self::msg_id_abo_mail_failed($request['msg']));
           }
           wp_redirect($request['redirect_to'] ?? get_admin_url());
           exit;
@@ -1855,7 +1899,7 @@ class LL_mailer
         <td><code><?=self::token_POST_ATTRIBUTE['html']?></code></td>
         <td>
           <?=sprintf(__('WP_Post Attribute (%s), z.B. %s.', 'LL_mailer'),
-            '<a href="https://codex.wordpress.org/Class_Reference/WP_Post" target="_blank">?</a>',
+            '<a href="https://developer.wordpress.org/reference/classes/wp_post/" target="_blank">?</a>',
             '<code>' . implode('</code>, <code>', self::token_POST_ATTRIBUTE['example']) . '</code>')?> 
           <p><?=__('Zusätzlich verfügbare Attribute: ', 'LL_mailer')?><code>"url"</code></p>
         </td>
@@ -1874,8 +1918,8 @@ class LL_mailer
         <td><?=self::list_item?></td>
         <td><code><?=self::token_SUBSCRIBER_ATTRIBUTE['html']?></code></td>
         <td>
-          <?=sprintf(__('Abonnenten-Attribut aus den Einstellungen (%s), z.B. %s.', 'LL_mailer'),
-            '<a href="' . self::admin_url() . self::admin_page_settings . '#subscriber-attributes">?</a>',
+          <?=sprintf(__('Abonnenten-Attribut (%s), z.B. %s.', 'LL_mailer'),
+            '<a href="' . self::admin_url() . self::admin_page_subscriber_attributes . '">?</a>',
             '<code>' . implode('</code>, <code>', self::token_SUBSCRIBER_ATTRIBUTE['example']) . '</code>')?> 
         </td>
       </tr><tr>
@@ -2600,6 +2644,7 @@ class LL_mailer
   {
     $sub_page = 'list';
     if (isset($_GET['edit'])) $sub_page = 'edit';
+    else if (isset($_GET['send_one_time_mail'])) $sub_page = 'send_one_time_mail';
     else if (isset($_GET['abo_mail_preview'])) $sub_page = 'abo_mail_preview';
 ?>
     <div class="wrap">
@@ -2634,10 +2679,12 @@ class LL_mailer
             <th><?=__('Betreff', 'LL_mailer')?></th>
             <th><?=__('Vorlage', 'LL_mailer')?></th>
             <th><?=__('Zuletzt bearbeitet', 'LL_mailer')?></th>
+            <th style="width: 30pt"></th>
           </tr>
 <?php
           $messages = self::db_get_messages(array('slug', 'subject', 'template_slug', 'last_modified'));
           $edit_url = self::admin_url() . self::admin_page_message_edit;
+          $send_url = self::admin_url() . self::admin_page_message_one_time_mail;
           foreach ($messages as &$message) {
 ?>
             <tr>
@@ -2645,6 +2692,7 @@ class LL_mailer
               <td><a href="<?=$edit_url . urlencode($message['slug'])?>"><?=$message['subject'] ?: '<i>(kein Betreff)</i>'?></a></td>
               <td><?=$message['template_slug']?></td>
               <td><?=$message['last_modified']?></td>
+              <td><a href="<?=$send_url . $message['slug']?>" class="dashicons-before dashicons-email-alt2" title="<?=__('Diese Nachricht jetzt versenden', 'LL_mailer')?>"></a></td>
             </tr>
 <?php
           }
@@ -2750,9 +2798,9 @@ class LL_mailer
           </table>
         </form>
 
-        <hr />
+        <br /><hr /><br />
 
-        <h1><?=__('Optionen für Vorschau / Testnachricht', 'LL_mailer')?></h1>
+        <h1><?=__('Live-Vorschau / Testnachricht', 'LL_mailer')?></h1>
         <br />
 
 <?php
@@ -2929,24 +2977,13 @@ class LL_mailer
         }
 ?>
 
-        <hr />
+        <br /><hr /><br />
 
-        <h1><?=__('Nachricht an Einmal-Empfänger senden', 'LL_mailer')?></h1>
-        <br />
+        <h1><?=__('Nachricht jetzt versenden', 'LL_mailer')?></h1>
 
-        <form method="post" action="admin-post.php">
-          <input type="hidden" name="action" value="<?=self::_?>_message_action" />
-          <?php wp_nonce_field(self::_ . '_send_one_time_mail'); ?> 
-          <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
-          <textarea name="abo_mail_to" rows="5" style="width: 100%">| mail | name
-| </textarea>
-          <p><?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), '', '', false, array('onclick' => 'return confirm(\'Ist alles gespeichert?\nEs gibt keine weitere Vorschau. Die Nachrichten werden direkt verschickt.\')')); ?></p>
-        </form>
+        <p><a href="<?=self::admin_url() . self::admin_page_message_one_time_mail . $message_slug?>" class="button"><?=__('Zur Vorschau', 'LL_mailer')?></a></p>
 
-<?php
-?>
-
-        <hr />
+        <br /><hr /><br />
 
         <h1><?=__('Löschen', 'LL_mailer')?></h1>
 
@@ -2979,10 +3016,83 @@ class LL_mailer
           <input type="hidden" name="action" value="<?=self::_?>_message_action" />
           <?php wp_nonce_field(self::_ . '_message_delete'); ?> 
           <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
-          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), '', 'submit', true, array('onclick' => 'return confirm(\'Wirklich löschen?\nDie Nachricht kann nicht wiederhergestellt werden.\')')); ?> 
+          <?php submit_button(__('Nachricht löschen', 'LL_mailer'), '', 'submit', true, array('onclick' => 'return confirm(\'' . __('Wirklich löschen?\nDie Nachricht kann nicht wiederhergestellt werden.', 'LL_mailer') . '\')')); ?> 
         </form>
 <?php
         }
+      } break;
+
+      case 'send_one_time_mail':
+      {
+        $message_slug = $_GET['send_one_time_mail'];
+        $message = self::db_get_message_by_slug($message_slug);
+        if (empty($message)) {
+          self::message(sprintf(__('Es existiert keine Nachricht <b>%s</b>.', 'LL_mailer'), $message_slug));
+          wp_redirect(self::admin_url() . self::admin_page_messages);
+          exit;
+        }
+?>
+        <h1><?=__('Nachrichten', 'LL_mailer')?> &gt; <a href="<?=self::admin_url() . self::admin_page_message_edit . $message_slug?>"><?=$message_slug?></a> &gt; <?=__('Jetzt versenden', 'LL_mailer')?></h1>
+<?php
+        $message_preview = self::generate_message_preview($message);
+        if ($message_preview === false) {
+          break;
+        }
+?>
+        <table class="form-table">
+          <?=$message_preview?>
+          <tr>
+            <td colspan="2"><hr /></td>
+          </tr>
+          <tr>
+            <th><?=__('Abonnenten-Filter', 'LL_mailer')?></th>
+            <td>
+              <form method="post" action="admin-post.php">
+                <input type="hidden" name="action" value="<?=self::_?>_message_action" />
+                <?php wp_nonce_field(self::_ . '_send_abo_mail'); ?>
+                <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
+                <input type="hidden" name="abo_mail_to" value="filters" />
+                <p>
+<?php
+        $filters = self::db_get_filters(array('id', 'label'));
+        $count = self::db_count_subscribers_by_filter();
+        foreach ($filters as &$filter) {
+?>
+                <label style="margin-right: 20pt"><input type="checkbox" name="abo_mail_filters[]" value="<?=$filter['id']?>" /><?=$filter['label']?> (<?=self::sp($count[$filter['id']], __('Abonnent', 'LL_mailer'), __('Abonnenten', 'LL_mailer'))?>)</label>
+<?php
+        }
+?>
+                </p>
+                <br />
+                <p><?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), 'primary', '', false, array('onclick' => 'return confirm(\'' . __('Sind richtigen Abonnenten-Filter ausgewählt?\n\nEs gibt keine weitere Vorschau. Die Nachrichten werden direkt verschickt.', 'LL_mailer') . '\')')); ?></p>
+              </form>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2"><hr /></td>
+          </tr>
+          <tr>
+            <th><?=__('Einmal-Empfänger', 'LL_mailer')?></th>
+            <td>
+              <form method="post" action="admin-post.php">
+                <input type="hidden" name="action" value="<?=self::_?>_message_action" />
+                <?php wp_nonce_field(self::_ . '_send_one_time_mail'); ?>
+                <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
+                <p><textarea name="abo_mail_to" rows="5" style="width: 100%">| mail | name
+| </textarea></p>
+                <p class="description">
+                  <?=sprintf(__('Die erste Zeile enthält die Liste der Abonnenten-Attribute, die als %s Platzhalter verfügbar sein sollen.<br />
+                  In den weiteren Zeilen stehen die dazu passenden Daten der Einmal-Empfänger (ein Empfänger pro Zeile). Das erste Zeichen jeder Zeile gibt das Trennzeichen der Attribute an.<br />
+                  <br />
+                  Einmal-E-Mails werden <u>nicht</u> mit einem bestimmten Post verknüpft. Das heißt in der Nachricht können keine %s Platzhalter verwendet werden.', 'LL_mailer'), '<code>' . self::token_SUBSCRIBER_ATTRIBUTE['short'] . '</code>', '<code>' . self::token_POST_ATTRIBUTE['short'] . '</code>')?>
+                </p>
+                <br />
+                <p><?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), 'primary', '', false, array('onclick' => 'return confirm(\'' . __('Sind alle Daten der Empfänger korrekt?\n\nEs gibt keine weitere Vorschau. Die Nachrichten werden direkt verschickt.', 'LL_mailer') . '\')')); ?></p>
+              </form>
+            </td>
+          </tr>
+        </table>
+<?php
       } break;
 
       case 'abo_mail_preview':
@@ -2994,89 +3104,29 @@ class LL_mailer
         if (!isset($_GET['to'])) {
           $errors[] = __('Kein Empfänger angegeben', 'LL_mailer');
         }
-        if (empty($errors)) {
-          $msg = $_GET['abo_mail_preview'];
-          $post_id = $_GET['post'] ?: null;
-          $mail_or_error = self::prepare_mail(
-            $msg,
-            self::get_sender(),
-            true,
-            $post_id,
-            true,
-            true,
-            'preview');
-          if (is_string($mail_or_error)) {
-            $errors[] = $mail_or_error;
-          }
-        }
         if (!empty($errors)) {
           self::inline_message(implode('<br />', $errors));
           break;
         }
-
-        list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
-        ?>
-
+?>
         <h1><?=__('Nachricht an Abonnenten senden', 'LL_mailer')?></h1>
-
-        <?php wp_nonce_field(self::_ . '_message_edit'); ?> 
-        <input type="hidden" name="message_slug" value="<?=$msg?>" />
+<?php
+        $message_slug = $_GET['abo_mail_preview'];
+        $post_id = $_GET['post'] ?: null;
+        $message_preview = self::generate_message_preview($message_slug, $post_id);
+        if ($message_preview === false) {
+          break;
+        }
+?>
         <table class="form-table">
-          <tr>
-            <th><?=__('Betreff', 'LL_mailer')?></th>
-            <td>
-              <input disabled id="subject_preview" type="text" value="<?=esc_attr($subject)?>" style="width: 100%; color: black; background: white;" />
-            </td>
-          </tr>
-          <tr>
-            <th><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
-            <td>
-              <iframe id="body_html_preview" style="width: 100%; height: 500px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(
-                  self::html_prefix . $body_html . self::html_suffix
-                )?>">
-              </iframe>
-            </td>
-          </tr>
-          <tr>
-            <th><?=__('Vorschau (Text)', 'LL_mailer')?></th>
-            <td>
-              <textarea disabled id="body_text_preview" style="width: 100%; height: 500px; color:black; background: white;"><?=$body_text?></textarea>
-            </td>
-          </tr>
-          <tr>
-            <th><?=__('Filter (Post-Kategorien)', 'LL_mailer')?></th>
-            <td>
-              <?php
-              $post_category_ids = wp_get_post_categories($post_id);
-              $post_categories = array();
-              $tmp_categories = get_categories();
-              foreach ($tmp_categories as &$cat) {
-                if (in_array($cat->term_id, $post_category_ids)) {
-                  $post_categories[] = $cat->name;
-                }
-              }
-              $filters = self::db_get_filters_by_categories('label', $post_category_ids);
-              echo implode(', ', array_map(function($a) { return $a['label']; }, $filters)) . ' (' . implode(', ', $post_categories) . ')';
-              ?> 
-            </td>
-          </tr>
-          <tr>
-            <th><?=__('Empfänger', 'LL_mailer')?></th>
-            <td>
-              <?php
-              $receivers = self::db_get_subscribers(true, true);
-              $receivers = self::filter_subscribers_by_post($receivers, $post_id);
-              echo implode(', ', array_map(function($r) { return $r[self::subscriber_attribute_name]; }, $receivers));
-              ?> 
-            </td>
-          </tr>
+          <?=$message_preview?>
           <tr>
             <td>
               <form method="post" action="admin-post.php">
                 <input type="hidden" name="action" value="<?=self::_?>_message_action" />
                 <?php wp_nonce_field(self::_ . '_send_abo_mail'); ?> 
                 <input type="hidden" name="original_referrer" value="<?=$_SERVER['HTTP_REFERER']?>" />
-                <input type="hidden" name="message_slug" value="<?=$msg?>" />
+                <input type="hidden" name="message_slug" value="<?=$message_slug?>" />
                 <input type="hidden" name="abo_mail_to" value="<?=$_GET['to']?>" />
                 <input type="hidden" name="abo_mail_post" value="<?=$post_id?>" />
                 <?php submit_button(__('E-Mails jetzt senden', 'LL_mailer'), 'primary', '', false); ?> 
@@ -3091,6 +3141,77 @@ class LL_mailer
     </div>
 <?php
     self::admin_page_footer();
+  }
+
+  static function generate_message_preview($message, $post_id = null)
+  {
+    $mail_or_error = self::prepare_mail(
+      $message,
+      self::get_sender(),
+      true,
+      $post_id,
+      true,
+      true,
+      'preview');
+    if (is_string($mail_or_error)) {
+      self::inline_message($mail_or_error);
+      return false;
+    }
+
+    list($to, $subject, $body_html, $body_text, $attachments, $replace_dict) = $mail_or_error;
+    ob_start();
+?>
+          <tr>
+            <th><?=__('Betreff', 'LL_mailer')?></th>
+            <td>
+              <input disabled id="subject_preview" type="text" value="<?=esc_attr($subject)?>" style="width: 100%; color: black; background: white;" />
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Vorschau (HTML)', 'LL_mailer')?></th>
+            <td>
+              <iframe id="body_html_preview" style="width: 100%; height: 500px; resize: vertical; border: 1px solid #ddd; background: white;" srcdoc="<?=htmlspecialchars(self::html_prefix . $body_html . self::html_suffix)?>"></iframe>
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Vorschau (Text)', 'LL_mailer')?></th>
+            <td>
+              <textarea disabled id="body_text_preview" style="width: 100%; height: 500px; color:black; background: white;"><?=$body_text?></textarea>
+            </td>
+          </tr>
+<?php
+    if (!is_null($post_id)) {
+?>
+          <tr>
+            <th><?=__('Filter (Post-Kategorien)', 'LL_mailer')?></th>
+            <td>
+<?php
+              $post_category_ids = wp_get_post_categories($post_id);
+              $post_categories = array();
+              $tmp_categories = get_categories();
+              foreach ($tmp_categories as &$cat) {
+                if (in_array($cat->term_id, $post_category_ids)) {
+                  $post_categories[] = $cat->name;
+                }
+              }
+              $filters = self::db_get_filters_by_categories('label', $post_category_ids);
+              echo implode(', ', array_map(function($a) { return $a['label']; }, $filters)) . ' (' . implode(', ', $post_categories) . ')';
+?>
+            </td>
+          </tr>
+          <tr>
+            <th><?=__('Empfänger', 'LL_mailer')?></th>
+            <td>
+<?php
+              $receivers = self::db_get_subscribers(true, true);
+              $receivers = self::filter_subscribers_by_post($receivers, $post_id);
+              echo implode(', ', array_map(function($r) { return $r[self::subscriber_attribute_name]; }, $receivers));
+?>
+            </td>
+          </tr>
+<?php
+    }
+    return ob_get_clean();
   }
 
   static function admin_page_message_action()
@@ -3152,9 +3273,10 @@ class LL_mailer
         else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_send_abo_mail')) {
           self::send_abo_mails(array(
             'msg' => $message_slug,
-            'post' => $_POST['abo_mail_post'],
             'to' => $_POST['abo_mail_to'],
-            'redirect_to' => $_POST['original_referrer']));
+            'post' => $_POST['abo_mail_post'] ?? null,
+            'filters' => $_POST['abo_mail_filters'] ?? null,
+            'redirect_to' => $_POST['original_referrer'] ?? $_SERVER['HTTP_REFERER']));
           exit;
         }
       }
@@ -3205,7 +3327,7 @@ class LL_mailer
           $subscriber_count = self::db_get_subscriber_count();
           $last_page = (int) ($subscriber_count / $subscribers_per_page);
           $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
-          $subscribers = self::_db_select(self::table_subscribers, "#*, IF(subscribed_at IS NOT NULL, DATE_FORMAT(subscribed_at, \"%Y-%m-%d %H:%i\"), IF(meta LIKE \"%submitted_at%\", FROM_UNIXTIME(SUBSTRING(meta, 17, 10), \"%Y-%m-%d %H:%i\"), NULL)) as subscribed_or_submitted_at", array(), array('subscribed_or_submitted_at' => 'DESC'), $limit);
+          $subscribers = self::_db_select(self::table_subscribers, "#*, IF(subscribed_at IS NOT NULL, DATE_FORMAT(subscribed_at, \"%Y-%m-%d %H:%i\"), IF(meta LIKE \"%submitted_at%\", FROM_UNIXTIME(SUBSTRING(meta, 17, 10), \"%Y-%m-%d %H:%i\"), NULL)) as subscribed_or_submitted_at", array(), null, array('subscribed_or_submitted_at' => 'DESC'), $limit);
           array_walk($subscribers, function(&$subscriber) {
             $meta = &$subscriber[self::subscriber_attribute_meta];
             $meta = json_decode($meta, true);
@@ -3743,7 +3865,7 @@ class LL_mailer
             }
  ?>
             </select><br />
-            <input type="checkbox" name="filter_all_categories" form="<?=$new_form_id?>" />
+            <label><input type="checkbox" name="filter_all_categories" form="<?=$new_form_id?>" /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
           </td><td>
             <?php submit_button(__('Hinzufügen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $new_form_id)); ?>
           </td>
