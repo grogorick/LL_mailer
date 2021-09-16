@@ -445,9 +445,15 @@ class LL_mailer
     else {
       $what = self::escape_keys($what);
     }
-    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_groupby($groupby) . self::build_orderby($orderby) . self::build_limit($limit) . ';';
+    $sql = 'SELECT ' . $what . ' FROM ' . self::escape_keys($table) . self::build_where($where) . self::build_groupby($groupby) . self::build_orderby($orderby) . self::build_limit($limit);
     // self::message(htmlspecialchars($sql));
     return $sql;
+  }
+
+  static function _db_table($table)
+  {
+    global $wpdb;
+    return $wpdb->prefix . $table;
   }
 
   static function _db_insert($table, $data)
@@ -491,13 +497,13 @@ class LL_mailer
   static function _db_select($table, $what = '*', $where = array(), $groupby = null, $orderby = null, $limit = null)
   {
     global $wpdb;
-    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $groupby, $orderby, $limit), ARRAY_A);
+    return $wpdb->get_results(self::_db_build_select($wpdb->prefix . $table, $what, $where, $groupby, $orderby, $limit) . ';', ARRAY_A);
   }
 
   static function _db_select_row($table, $what = '*', $where = array())
   {
     global $wpdb;
-    return $wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where), ARRAY_A);
+    return $wpdb->get_row(self::_db_build_select($wpdb->prefix . $table, $what, $where) . ';', ARRAY_A);
   }
 
 
@@ -547,11 +553,12 @@ class LL_mailer
   // - label
   // - categories
   // - preselected
+  // - position
   static function db_add_filter($filter) { return self::_db_insert(self::table_filters, $filter); }
   static function db_update_filter($filter, $id) { return self::_db_update(self::table_filters, $filter, array('id' => $id)); }
   static function db_delete_filter($id) { return self::_db_delete(self::table_filters, array('id' => $id)); }
   static function db_get_filter_by_id($id) { return self::_db_select_row(self::table_filters, '*', array('id' => $id)); }
-  static function db_get_filters($what, $ids = array()) { return self::_db_select(self::table_filters, $what, empty($ids) ? array() : array('id' => array('IN', $ids))); }
+  static function db_get_filters($what, $ids = array()) { return self::_db_select(self::table_filters, $what, empty($ids) ? array() : array('id' => array('IN', $ids)), null, 'position'); }
   static function db_get_filters_by_categories($what, $categories)
   {
     return self::_db_select(self::table_filters, $what,
@@ -711,8 +718,9 @@ class LL_mailer
   {
     return array(
       'table_created' => __('Tabelle erstellt', 'LL_mailer'),
-      'table_updated' => __('Tabelle aktualisiert', 'LL_mailer'),
-      'table_init' => __('Tabelle initialisiert', 'LL_mailer'),
+      'table_altered' => __('Tabelle aktualisiert', 'LL_mailer'),
+      'table_updated' => __('Tabellendaten aktualisiert', 'LL_mailer'),
+      'table_init' => __('Tabellendaten initialisiert', 'LL_mailer'),
       'option_init' => __('Einstellung initialisiert', 'LL_mailer'));
   }
 
@@ -770,6 +778,7 @@ class LL_mailer
           `label` TINYTEXT NOT NULL,
           `categories` TINYTEXT NOT NULL,
           `preselected` BOOLEAN NOT NULL,
+          `position` TINYINT NOT NULL,
           PRIMARY KEY (`id`)
         )
         ENGINE=InnoDB ' . $wpdb->get_charset_collate() . ';'
@@ -867,7 +876,7 @@ class LL_mailer
           ADD ' . self::escape_key(self::subscriber_attribute_id) . ' INT NOT NULL AUTO_INCREMENT FIRST,
           ADD PRIMARY KEY (' . self::escape_key(self::subscriber_attribute_id) . '),
           ADD UNIQUE (' . self::escape_key(self::subscriber_attribute_mail) . ');'
-        ) ? $labels['table_updated'] : self::db_get_error());
+        ) ? $labels['table_altered'] : self::db_get_error());
 
     $r[] = self::table_filters . ' : ' .
       ($wpdb->query('
@@ -934,7 +943,7 @@ class LL_mailer
       ($wpdb->query('
           ALTER TABLE ' . self::escape_key($wpdb->prefix . self::table_messages) . '
             CHANGE `subject` `subject` VARCHAR(256);'
-      ) ? $labels['table_updated'] : self::db_get_error());
+      ) ? $labels['table_altered'] : self::db_get_error());
 
     $r[] = self::table_logs . ' : ' .
       ($wpdb->query('
@@ -948,6 +957,27 @@ class LL_mailer
     $r[] = self::option_log_mails . ' : ' .
       (add_option(self::option_log_mails, false
       ) ? $labels['option_init'] : self::db_get_error());
+
+    return $r;
+  }
+
+  static function update_3()
+  {
+    global $wpdb;
+    $r = array();
+    $labels = self::get_db_labels();
+
+    $r[] = self::table_filters . ' : ' .
+      ($wpdb->query('
+          ALTER TABLE ' . self::escape_key($wpdb->prefix . self::table_filters) . '
+            ADD `position` TINYINT NOT NULL AFTER `preselected`;'
+      ) ? $labels['table_altered'] : self::db_get_error());
+
+    $r[] = self::table_filters . ' : ' .
+      ($wpdb->query('
+          UPDATE ' . self::escape_key($wpdb->prefix . self::table_filters) . '
+            SET `position` = `id`;'
+      ) ? $labels['table_updated'] : self::db_get_error());
 
     return $r;
   }
@@ -3799,6 +3829,7 @@ class LL_mailer
           <td colspan="2"><?=__('Post-Kategorien', 'LL_mailer')?></td>
         </tr>
 <?php
+        $is_first_filter = true;
         foreach ($filters as &$filter) {
           $form_id = self::_ . '_form_filter_' . $filter['id'];
           $filter_categories = self::explode_filter_categories($filter['categories']);
@@ -3830,16 +3861,28 @@ class LL_mailer
             <label><input type="checkbox" name="new_filter_all_categories" form="<?=$form_id?>" <?=$filter_categories === self::all_posts ? 'checked' : ''?> /> <?=__('Alle Kategorien', 'LL_mailer')?></label>
           </td><td>
             <?php submit_button(__('Speichern', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'form' => $form_id)); ?>
-
             <form method="post" action="admin-post.php" style="display: inline;">
               <input type="hidden" name="action" value="<?=self::_?>_filters_action" />
               <?php wp_nonce_field(self::_ . '_filter_delete'); ?> 
               <input type="hidden" name="filter" value="<?=$filter['id']?>" />
               <?php submit_button(__('Löschen', 'LL_mailer'), '', 'submit', false, array('style' => 'vertical-align: baseline;', 'onclick' => 'return confirm(\'Wirklich löschen?\nDie Zuordnung der Abonnenten geht dabei verloren.\')')); ?> 
             </form>
+<?php
+            if (!$is_first_filter) {
+?>
+            <form method="post" action="admin-post.php" style="display: inline; margin: 0 20pt">
+              <input type="hidden" name="action" value="<?=self::_?>_filters_action" />
+              <?php wp_nonce_field(self::_ . '_filter_move_up'); ?> 
+              <input type="hidden" name="filter" value="<?=$filter['id']?>" />
+              <?php submit_button('&#9650;', '', 'submit', false, array('style' => 'vertical-align: baseline;')); ?> 
+            </form>
+<?php
+            }
+?>
           </td>
         </tr>
 <?php
+          $is_first_filter = false;
         }
         $new_form_id = self::_ . '_form_new_filter';
 ?>
@@ -3941,6 +3984,16 @@ class LL_mailer
               self::message(sprintf(__('Filter <b>%s</b> geändert.', 'LL_mailer'), $old_filter['label']));
             }
           }
+        }
+        else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_filter_move_up')) {
+          $two_filters = self::_db_select(self::table_filters,
+            array('id', 'position'),
+            array('position' => array('<= (' . self::_db_build_select(self::_db_table(self::table_filters), 'position', array('id' => $filter_id)) . ')')),
+            null,
+            array('position' => 'DESC'), 2);
+
+          self::_db_update(self::table_filters, array('position' => $two_filters[0]['position']), array('id' => $two_filters[1]['id']));
+          self::_db_update(self::table_filters, array('position' => $two_filters[1]['position']), array('id' => $two_filters[0]['id']));
         }
         else if (wp_verify_nonce($_POST['_wpnonce'], self::_ . '_filter_delete')) {
           $filter = self::db_get_filter_by_id($filter_id);
