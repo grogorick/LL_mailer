@@ -4177,7 +4177,8 @@ class LL_mailer
 ?>
         <tr class="<?=self::_?>_row_filters">
           <td>
-            <?=__('Filter', 'LL_mailer')?>
+            <?=__('Filter', 'LL_mailer')?><br />
+            <span>(<?=__('Mehrfachauswahl möglich', 'LL_mailer')?>)</span>
           </td>
           <td>
             <input type="hidden" name='_wpnonce' value="<?=wp_create_nonce('wp_rest')?>" />
@@ -4208,7 +4209,6 @@ class LL_mailer
           }
 ?>
           </td>
-          <td>(<?=__('Mehrfachauswahl', 'LL_mailer')?>)</td>
         </tr>
 <?php
     $use_robot_check = get_option(self::option_use_robot_check);
