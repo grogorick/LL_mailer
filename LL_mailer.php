@@ -210,6 +210,11 @@ class LL_mailer
     $msgs[] = array($msg, $sticky_id, $convert_newlines);
     update_option(self::option_msg, $msgs);
   }
+  static function message_last_query()
+  {
+    global $wpdb;
+    self::message($wpdb->last_query);
+  }
 
   static function hide_message($sticky_id)
   {
@@ -352,7 +357,7 @@ class LL_mailer
         continue;
       }
       if (is_array($value) && isset($value[0])) {
-        if (is_array($value[0])) {
+        if (count($value) === 1 && is_array($value[0])) {
           $w = self::build_where_recursive($value[0]);
           if (!is_null($w)) {
             $ret[] = $w;
@@ -600,20 +605,42 @@ class LL_mailer
   static function db_delete_subscriber($mail) { return self::_db_delete(self::table_subscribers, array(self::subscriber_attribute_mail => $mail)); }
   static function db_get_subscriber_by_mail($mail) { return self::_db_select_row(self::table_subscribers, '*', array(self::subscriber_attribute_mail => $mail)); }
 
-  static function db_get_subscribers($confirmed_only = false, $active_only = false, $test_receiver_only = false)
+  static function _db_subscribers_where($confirmed_only, $active_only, $test_receiver_only, $join_operation)
   {
-    $subscribers = self::_db_select(self::table_subscribers, '*', $confirmed_only ? array(self::subscriber_attribute_subscribed_at => array('IS NOT NULL')) : array());
-    if ($active_only || $test_receiver_only) {
-      $subscribers = array_filter($subscribers, function($subscriber) use ($active_only, $test_receiver_only) {
-        $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
-        return
-          (!$active_only || !isset($meta[self::meta_disabled]) || !$meta[self::meta_disabled]) &&
-          (!$test_receiver_only || (isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]));
-      });
+    $sql_where = array();
+    if (!(is_null($confirmed_only) && is_null($active_only) && is_null($test_receiver_only))) {
+      $sql_where[] = $join_operation;
+      if (!is_null($confirmed_only)) {
+        $sql_where[self::subscriber_attribute_subscribed_at] = array('IS' . ($confirmed_only ? ' NOT' : '') . ' NULL');
+      }
+      if (!is_null($active_only)) {
+        $sql_where[] = array(array(self::subscriber_attribute_meta => array(($active_only ? 'NOT ' : '') . 'LIKE', '%' . self::meta_disabled . '%')));
+      }
+      if (!is_null($test_receiver_only)) {
+        $sql_where[] = array(array(self::subscriber_attribute_meta => array(($test_receiver_only ? '' : 'NOT ') . 'LIKE', '%' . self::meta_test_receiver . '%')));
+      }
     }
+    return $sql_where;
+  }
+  static function db_get_subscribers($confirmed_only = null, $active_only = null, $test_receiver_only = null, $join_operation = 'AND')
+  {
+    $sql_where = self::_db_subscribers_where($confirmed_only, $active_only, $test_receiver_only, $join_operation);
+    $subscribers = self::_db_select(self::table_subscribers, '*', $sql_where);
+//    if ($active_only || $test_receiver_only) {
+//      $subscribers = array_filter($subscribers, function($subscriber) use ($active_only, $test_receiver_only) {
+//        $meta = json_decode($subscriber[self::subscriber_attribute_meta], true);
+//        return
+//          (!$active_only || !isset($meta[self::meta_disabled])) &&
+//          (!$test_receiver_only || isset($meta[self::meta_test_receiver]));
+//      });
+//    }
     return $subscribers;
   }
-  static function db_get_subscriber_count() { return intval(self::_db_select_row(self::table_subscribers, '#COUNT(0)')['COUNT(0)']); }
+  static function db_get_subscriber_count($confirmed_only = null, $active_only = null, $test_receiver_only = null, $join_operation = 'AND')
+  {
+    $sql_where = self::_db_subscribers_where($confirmed_only, $active_only, $test_receiver_only, $join_operation);
+    return intval(self::_db_select_row(self::table_subscribers, '#COUNT(0)', $sql_where)['COUNT(0)']);
+  }
 
   static function db_subscribers_add_attribute($attr)
   {
@@ -2834,7 +2861,7 @@ class LL_mailer
         <br />
 
 <?php
-        $subscribers = self::db_get_subscribers(false, false, true);
+        $subscribers = self::db_get_subscribers(null, null, true);
         $test_posts = new WP_Query(array(
           'post_type' => 'post',
 //          'orderby' => array(
@@ -3348,27 +3375,58 @@ class LL_mailer
 
         <h1><?=__('Gespeicherte Abonnenten', 'LL_mailer')?></h1>
         <p></p>
-<?php
-          $filters = self::array_assoc_by(self::db_get_filters(array('id', 'label')));
-
-          $subscribers_per_page = get_option(self::option_subscribers_per_page);
-          $paged = intval($_GET['paged'] ?? 1) - 1;
-          $limit = array($paged * $subscribers_per_page, ($paged + 1) * $subscribers_per_page);
-          $subscriber_count = self::db_get_subscriber_count();
-          $last_page = (int) ($subscriber_count / $subscribers_per_page);
-          $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
-          $subscribers = self::_db_select(self::table_subscribers, "#*, IF(subscribed_at IS NOT NULL, DATE_FORMAT(subscribed_at, \"%Y-%m-%d %H:%i\"), IF(meta LIKE \"%submitted_at%\", FROM_UNIXTIME(SUBSTRING(meta, 17, 10), \"%Y-%m-%d %H:%i\"), NULL)) as subscribed_or_submitted_at", array(), null, array('subscribed_or_submitted_at' => 'DESC'), $limit);
-          array_walk($subscribers, function(&$subscriber) {
-            $meta = &$subscriber[self::subscriber_attribute_meta];
-            $meta = json_decode($meta, true);
-          });
-          $list_url = self::admin_url() . self::admin_page_subscribers;
-          $paged_nav_btn = function($page, $label, $paged, $enabled) use ($list_url) {
-            return '<a class="' . ($enabled ? $page . '-page' : 'tablenav-pages-navspan disabled') . ' button" href="' . $list_url . ($paged > 1 ? '&paged=' . $paged : '') . '">'
-              . '<span aria-hidden="true">' . $label . '</span></a>';
-          }
-?>
         <div class="tablenav top">
+<?php
+        $subscriber_count_all = self::db_get_subscriber_count();
+        $subscriber_count_active = self::db_get_subscriber_count(true, true);
+        $subscriber_count_inactive = self::db_get_subscriber_count(false, false, null, 'OR');
+        $list_url = self::admin_url() . self::admin_page_subscribers;
+        $list_url_all = $list_url;
+        $list_url_active = $list_url . '&abo-status=active';
+        $list_url_inactive = $list_url . '&abo-status=inactive';
+        if ($_GET['abo-status'] === 'active') {
+          $current_active = ' class="current" aria-current="page"';
+          $sql_where = self::_db_subscribers_where(true, true, null, 'AND');
+          $subscriber_count = $subscriber_count_active;
+          $current_list_url = $list_url_active;
+        }
+        else if ($_GET['abo-status'] === 'inactive') {
+          $current_inactive = ' class="current" aria-current="page"';
+          $sql_where = self::_db_subscribers_where(false, false, null, 'OR');
+          $subscriber_count = $subscriber_count_inactive;
+          $current_list_url = $list_url_inactive;
+        }
+        else {
+          $current_all = ' class="current" aria-current="page"';
+          $sql_where = array();
+          $subscriber_count = $subscriber_count_all;
+          $current_list_url = $list_url;
+        }
+?>
+          <ul class="subsubsub">
+            <li class="all">
+              <a href="<?=$list_url_all?>"<?=$current_all?>>Alle
+                <span class="count">(<?=$subscriber_count_all?>)</span></a> |</li>
+            <li class="confirmed">
+              <a href="<?=$list_url_active?>"<?=$current_active?>>Aktiv
+                <span class="count">(<?=$subscriber_count_active?>)</span></a> |</li>
+            <li class="not-confirmed">
+              <a href="<?=$list_url_inactive?>"<?=$current_inactive?>>Inaktiv
+                <span class="count">(<?=$subscriber_count_inactive?>)</span></a></li>
+          </ul>
+<?php
+        $filters = self::array_assoc_by(self::db_get_filters(array('id', 'label')));
+
+        $subscribers_per_page = get_option(self::option_subscribers_per_page);
+        $paged = intval($_GET['paged'] ?? 1) - 1;
+        $limit = array($paged * $subscribers_per_page, $subscribers_per_page);
+        $last_page = (int) ($subscriber_count / $subscribers_per_page);
+        $edit_url = self::admin_url() . self::admin_page_subscriber_edit;
+        $paged_nav_btn = function($page, $label, $paged, $enabled) use ($current_list_url) {
+          return '<a class="' . ($enabled ? $page . '-page' : 'tablenav-pages-navspan disabled') . ' button" href="' . $current_list_url . ($paged > 1 ? '&paged=' . $paged : '') . '">'
+            . '<span aria-hidden="true">' . $label . '</span></a>';
+        }
+?>
           <form method="GET">
             <input type="hidden" name="page" value="<?=self::admin_page_subscribers?>" />
             <div class="tablenav-pages">
@@ -3395,8 +3453,18 @@ class LL_mailer
             <th><?=__('Anmeldung / Status', 'LL_mailer')?></th>
           </tr>
 <?php
-          foreach ($subscribers as &$subscriber) {
-            $meta = &$subscriber[self::subscriber_attribute_meta];
+        $subscribers = self::_db_select(self::table_subscribers, 
+          "#*, IF(subscribed_at IS NOT NULL, DATE_FORMAT(subscribed_at, \"%Y-%m-%d %H:%i\"), IF(meta LIKE \"%submitted_at%\", FROM_UNIXTIME(SUBSTRING(meta, 17, 10), \"%Y-%m-%d %H:%i\"), NULL)) as subscribed_or_submitted_at",
+          $sql_where,
+          null,
+          array('subscribed_or_submitted_at' => 'DESC'),
+          $limit);
+        array_walk($subscribers, function(&$subscriber) {
+          $meta = &$subscriber[self::subscriber_attribute_meta];
+          $meta = json_decode($meta, true);
+        });
+        foreach ($subscribers as &$subscriber) {
+          $meta = &$subscriber[self::subscriber_attribute_meta];
 ?>
           <tr>
             <td>
@@ -3411,38 +3479,38 @@ class LL_mailer
             </td>
             <td>
 <?php
-              $subscriber_filters = self::db_get_filter_ids_by_subscriber($subscriber[self::subscriber_attribute_id]);
-              array_walk($subscriber_filters, function(&$filter_id, $key) use ($filters) { $filter_id = $filters[$filter_id]['label']; });
-              echo implode(', ', $subscriber_filters);
+          $subscriber_filters = self::db_get_filter_ids_by_subscriber($subscriber[self::subscriber_attribute_id]);
+          array_walk($subscriber_filters, function(&$filter_id, $key) use ($filters) { $filter_id = $filters[$filter_id]['label']; });
+          echo implode(', ', $subscriber_filters);
 ?>
             </td>
             <td>
 <?php
-              $date = $subscriber['subscribed_or_submitted_at'];
-              $status = array();
-              if (empty($subscriber['subscribed_at'])) {
-                $status[] = __('Unbestätigt', 'LL_mailer');
-              }
-              if (isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) {
-                $status[] = __('Deaktiviert', 'LL_mailer');
-              }
-              if (isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) {
-                $status[] = __('Testempfänger', 'LL_mailer');
-              }
+          $date = $subscriber['subscribed_or_submitted_at'];
+          $status = array();
+          if (empty($subscriber[self::subscriber_attribute_subscribed_at])) {
+            $status[] = __('Unbestätigt', 'LL_mailer');
+          }
+          if (isset($meta[self::meta_disabled])) {
+            $status[] = __('Deaktiviert', 'LL_mailer');
+          }
+          if (isset($meta[self::meta_test_receiver])) {
+            $status[] = __('Testempfänger', 'LL_mailer');
+          }
 
-              $status_output = array();
-              if (!is_null($date)) {
-                $status_output[] = $date;
-              }
-              if (!empty($status)) {
-                $status_output[] = implode(' / ', $status);
-              }
-              echo implode(' / ', $status_output);
+          $status_output = array();
+          if (!is_null($date)) {
+            $status_output[] = $date;
+          }
+          if (!empty($status)) {
+            $status_output[] = implode(' / ', $status);
+          }
+          echo implode(' / ', $status_output);
 ?>
             </td>
           </tr>
 <?php
-          }
+        }
 ?>
         </table>
 <?php
@@ -3500,13 +3568,13 @@ class LL_mailer
             <tr>
               <th scope="row"><?=__('Deaktiviert', 'LL_mailer')?></th>
               <td>
-                <input type="checkbox" name="meta_<?=self::meta_disabled?>" <?=(isset($meta[self::meta_disabled]) && $meta[self::meta_disabled]) ? 'checked' : ''?> />
+                <input type="checkbox" name="meta_<?=self::meta_disabled?>" <?=isset($meta[self::meta_disabled]) ? 'checked' : ''?> />
               </td>
             </tr>
             <tr>
               <th scope="row"><?=__('Testempfänger', 'LL_mailer')?></th>
               <td>
-                <input type="checkbox" name="meta_<?=self::meta_test_receiver?>" <?=(isset($meta[self::meta_test_receiver]) && $meta[self::meta_test_receiver]) ? 'checked' : ''?> />
+                <input type="checkbox" name="meta_<?=self::meta_test_receiver?>" <?=isset($meta[self::meta_test_receiver]) ? 'checked' : ''?> />
               </td>
             </tr>
           </table>
@@ -4108,7 +4176,9 @@ class LL_mailer
     }
 ?>
         <tr class="<?=self::_?>_row_filters">
-          <td>Filter</td>
+          <td>
+            <?=__('Filter', 'LL_mailer')?>
+          </td>
           <td>
             <input type="hidden" name='_wpnonce' value="<?=wp_create_nonce('wp_rest')?>" />
 <?php
@@ -4138,6 +4208,7 @@ class LL_mailer
           }
 ?>
           </td>
+          <td>(<?=__('Mehrfachauswahl', 'LL_mailer')?>)</td>
         </tr>
 <?php
     $use_robot_check = get_option(self::option_use_robot_check);
