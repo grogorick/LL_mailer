@@ -1,13 +1,13 @@
 <?php
 /*
 Plugin Name:  LL_mailer
-Plugin URI:   https://github.com/schtiefel/LL_mailer
+Plugin URI:   https://github.com/grogorick/LL_mailer
 Description:  New Post Notification Mail
 Version:      1.0
 Author:       Steve Grogorick
 Author URI:   https://grogorick.de/
-License:      GPLv3
-License URI:  http://www.gnu.org/licenses/gpl-3.0.html
+License:      MIT
+License URI:  https://opensource.org/licenses/MIT
 */
 
 if (!defined('ABSPATH')) {
